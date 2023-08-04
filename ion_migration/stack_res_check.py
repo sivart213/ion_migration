@@ -17,8 +17,8 @@ Provide any or all of the following:
 import numpy as np
 import pandas as pd
 
-import defect_code.equations as jce
-import defect_code.functions as jcf
+import research_tools.equations as jce
+import research_tools.functions as jcf
 
 # %% Code
 
