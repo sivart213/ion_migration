@@ -17,8 +17,8 @@ from scipy import optimize
 from dataclasses import astuple
 from copy import deepcopy
 
-from defect_code.equations import arrh
-from defect_code.functions import get_const, p_find, convert_val
+from research_tools.equations import arrh
+from research_tools.functions import get_const, p_find, convert_val
 
 """
 Busted Functions:

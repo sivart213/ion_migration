@@ -10,8 +10,8 @@ import numpy as np
 import pandas as pd
 import sympy.physics.units as su
 
-from defect_code.equations import screened_permitivity
-from defect_code.functions import get_const, map_plt
+from research_tools.equations import screened_permitivity
+from research_tools.functions import get_const, map_plt
 
 def get_lim(eqs, sol1, sol2, vals={}, multiplier=-1):
     if isinstance(eqs, sp.Piecewise):

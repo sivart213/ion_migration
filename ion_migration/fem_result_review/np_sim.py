@@ -10,8 +10,8 @@ import pandas as pd
 
 # from utilities import np_ratio, poisson, Time, Length, Temp
 
-from defect_code.equations import screened_permitivity, np_ratio, poisson
-from defect_code.functions import get_const, convert_val
+from research_tools.equations import screened_permitivity, np_ratio, poisson
+from research_tools.functions import get_const, convert_val
 
 surf = 5e19
 

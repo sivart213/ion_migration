@@ -9,8 +9,8 @@ import re
 import numpy as np
 import pandas as pd
 
-from defect_code.equations import Statistics
-from defect_code.functions import convert_val, f_find, sample_array
+from research_tools.equations import Statistics
+from research_tools.functions import convert_val, f_find, sample_array
 
 
 # %%
@@ -194,7 +194,7 @@ def originprint(df):
 
 # %% Operations
 if __name__ == "__main__":
-    from defect_code.functions import save, lineplot_slider, p_find, load
+    from research_tools.functions import save, lineplot_slider, p_find, load
 
     folder = "m80r7"  #  "m60r8", "m80r4", "mNoEr4"
 
