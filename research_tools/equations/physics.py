@@ -23,16 +23,16 @@ from research_tools.equations.general import inv_sum_invs, erfc
 
 
 # %% Electrical
-def capacitance(e_r, A, L, **kwargs):
+def capacitance(epsilon_r, A, L, **kwargs):
     """Calculate. generic discription."""
     arg_in = vars().copy()
-    e0 = kwargs.get("e0", None)
-    if e0 is None:
+    epsilon_0 = kwargs.get("vacuum_permittivity", None)
+    if epsilon_0 is None:
         w_units = has_units(arg_in)
         symbolic = all_symbols(arg_in)
-        e0 = get_const("e0", *([True] if symbolic else [w_units, ["farad", "cm"]]))
+        epsilon_0 = get_const("vacuum_permittivity", *([True] if symbolic else [w_units, ["farad", "cm"]]))
 
-    res = e_r * e0 * A / L
+    res = epsilon_r * epsilon_0 * A / L
 
     return res
 
@@ -171,12 +171,12 @@ def depletion_region(Na, Nd, T=298.15):
     symbolic = all_symbols(arg_in)
 
     q = get_const("elementary_charge", *([True] if symbolic else [w_units, ["C"]]))
-    e0 = get_const("e0", *([True] if symbolic else [w_units, ["farad", "cm"]]))
+    epsilon_0 = get_const("vacuum_permittivity", *([True] if symbolic else [w_units, ["farad", "cm"]]))
     k_B = get_const("boltzmann", *([True] if symbolic else [w_units, ["eV", "K"]]))
 
     Vbi = k_B * T * nsp.log(Na * Nd / ni_Si(T) ** 2)
 
-    pre = 2 * 11.8 * e0 / q * Vbi * (1 / (Na + Nd))
+    pre = 2 * 11.8 * epsilon_0 / q * Vbi * (1 / (Na + Nd))
     xp = nsp.sqrt(pre * Nd / Na)
     xn = nsp.sqrt(pre * Na / Nd)
 
@@ -655,12 +655,11 @@ def mobility_klassen(Nd, Na, Δn=1, T=298.16):
     return µe, µh
 
 
-# %% Diffusion
-def mobility_diffusion(D, z=1, T=298.15):
+def mobility_einstein(D, z=1, T=298.15):
     """Return the mobility (cm²/Vs) or Diffusivity (cm²/s) given the other value.
     This is also known as the Einstein relation"""
     arg_in = vars().copy()
-    lam_res, symb_var = has_arrays(arg_in, mobility_diffusion)
+    lam_res, symb_var = has_arrays(arg_in, mobility_einstein)
     if lam_res:
         return symb_var
 
@@ -672,6 +671,59 @@ def mobility_diffusion(D, z=1, T=298.15):
 
     return res
 
+# %% Diffusion
+
+
+
+def diffusion_length(t, D):
+    """Return carrier Diffusion length (cm)
+    given carrier t(s) and D (units)
+    """
+    arg_in = vars().copy()
+    lam_res, symb_var = has_arrays(arg_in, diffusion_length)
+    if lam_res:
+        return symb_var
+    nsp = pick_math_module(arg_in)
+    res = nsp.sqrt(t * D)
+    return res
+
+def debye_length(C, z, epsilon_r, T=298.15):
+    arg_in = vars().copy()
+    lam_res, symb_var = has_arrays(arg_in, debye_length)
+    if lam_res:
+        return symb_var
+
+    nsp = pick_math_module(arg_in)
+    w_units = has_units(arg_in)
+    symbolic = all_symbols(arg_in)
+
+    q = get_const("elementary_charge", *([True] if symbolic else [w_units, ["C"]]))
+    epsilon_0 = get_const("vacuum_permittivity", *([True] if symbolic else [w_units, ["farad", "cm"]]))
+    k_B = get_const("boltzmann", *([True] if symbolic else [w_units, ["joule", "K"]]))
+
+    if isinstance(C, (tuple, list)):
+        if not isinstance(z, (tuple, list)):
+            z = [z] * len(C)
+        charges = sum([C[n] * (q * z[n]) ** 2 for n in range(len(C))])
+    else:
+        charges = C * (q * z) ** 2
+    res = nsp.sqrt(epsilon_r * epsilon_0 * k_B * T / (charges))
+
+    return res
+
+
+def bjerrum_length(epsilon_r, T=298.15):
+    arg_in = vars().copy()
+    w_units = has_units(arg_in)
+    symbolic = all_symbols(arg_in)
+
+    q = get_const("elementary_charge", *([True] if symbolic else [w_units, ["C"]]))
+    epsilon_0 = get_const("vacuum_permittivity", *([True] if symbolic else [w_units, ["farad", "cm"]]))
+    k_B = get_const("boltzmann", *([True] if symbolic else [w_units, ["joule", "K"]]))
+
+    res = q**2 / (epsilon_r * epsilon_0 * k_B * T)
+
+    return res
 
 def characteristic_length(E, D, t, z=1, T=298.15):
     """Calculate via the characteristic t."""
@@ -691,19 +743,16 @@ def characteristic_length(E, D, t, z=1, T=298.15):
 
     return res
 
-
-def diffusion_length(t, D):
-    """Return carrier Diffusion length (cm)
-    given carrier t(s) and D (units)
-    """
+def nernst_planck_fundamental_sol(C_0, x, D, t):
+    """Calculate the ratio of C/C0 for arithmatic solution to np"""
     arg_in = vars().copy()
-    lam_res, symb_var = has_arrays(arg_in, diffusion_length)
+    lam_res, symb_var = has_arrays(arg_in, nernst_planck_fundamental_sol)
     if lam_res:
         return symb_var
     nsp = pick_math_module(arg_in)
-    res = nsp.sqrt(t * D)
-    return res
 
+    res = C_0 * erfc((x) / (2 * nsp.sqrt(D * t)))
+    return res
 
 def nernst_planck_analytic_sol(C_0, x, L, E, D, t, z=1, T=298.15):
     """Calculate the ratio of C/C0 for arithmatic solution to np"""
@@ -731,68 +780,31 @@ def nernst_planck_analytic_sol(C_0, x, L, E, D, t, z=1, T=298.15):
 
     return res
 
-
-def nernst_planck_fundamental_sol(C_0, x, D, t):
-    """Calculate the ratio of C/C0 for arithmatic solution to np"""
+def screened_permitivity(epsilon_r, kappa, x=1):
     arg_in = vars().copy()
-    lam_res, symb_var = has_arrays(arg_in, nernst_planck_fundamental_sol)
-    if lam_res:
-        return symb_var
-    nsp = pick_math_module(arg_in)
-
-    res = C_0 * erfc((x) / (2 * nsp.sqrt(D * t)))
-    return res
-
-
-def debye_length(C, z, e_r, T=298.15):
-    arg_in = vars().copy()
-    lam_res, symb_var = has_arrays(arg_in, debye_length)
-    if lam_res:
-        return symb_var
-
     nsp = pick_math_module(arg_in)
     w_units = has_units(arg_in)
     symbolic = all_symbols(arg_in)
 
+    epsilon_0 = get_const("vacuum_permittivity", *([True] if symbolic else [w_units, ["farad", "cm"]]))
+
+    res = epsilon_r * epsilon_0 * nsp.exp(kappa * x)
+
+    return res
+
+def poisson_rhs(C, z, epsilon_r):
+    if isinstance(C, (tuple,list)):
+        return [poisson_rhs(var, z, epsilon_r) for var in C]
+
+    arg_in = vars().copy()
+
+    w_units = has_units(arg_in)
+    symbolic = all_symbols(arg_in)
+    
     q = get_const("elementary_charge", *([True] if symbolic else [w_units, ["C"]]))
-    e0 = get_const("e0", *([True] if symbolic else [w_units, ["farad", "cm"]]))
-    k_B = get_const("boltzmann", *([True] if symbolic else [w_units, ["joule", "K"]]))
+    epsilon_0 = get_const("vacuum_permittivity", *([True] if symbolic else [w_units, ["farad", "cm"]]))
 
-    if isinstance(C, (tuple, list)):
-        if not isinstance(z, (tuple, list)):
-            z = [z] * len(C)
-        charges = sum([C[n] * (q * z[n]) ** 2 for n in range(len(C))])
-    else:
-        charges = C * (q * z) ** 2
-    res = nsp.sqrt(e_r * e0 * k_B * T / (charges))
-
-    return res
-
-
-def bjerrum_length(e_r, T=298.15):
-    arg_in = vars().copy()
-    w_units = has_units(arg_in)
-    symbolic = all_symbols(arg_in)
-
-    q = get_const("elementary_charge", *([True] if symbolic else [w_units, ["C"]]))
-    e0 = get_const("e0", *([True] if symbolic else [w_units, ["farad", "cm"]]))
-    k_B = get_const("boltzmann", *([True] if symbolic else [w_units, ["joule", "K"]]))
-
-    res = q**2 / (e_r * e0 * k_B * T)
-
-    return res
-
-
-def screened_permitivity(e_r, k_D, x=1):
-    arg_in = vars().copy()
-    nsp = pick_math_module(arg_in)
-    w_units = has_units(arg_in)
-    symbolic = all_symbols(arg_in)
-
-    e0 = get_const("e0", *([True] if symbolic else [w_units, ["farad", "cm"]]))
-
-    res = e_r * e0 * nsp.exp(k_D * x)
-
+    res = q * z * C / (epsilon_r * epsilon_0)
     return res
 
 

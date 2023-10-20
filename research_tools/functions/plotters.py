@@ -33,7 +33,7 @@ if "kindlmann" not in mpl.colormaps() or "kindlmann_r" not in mpl.colormaps():
     Path()
     csv = pd.read_csv(
         p_find(
-            r"research_tools\functions\kindlmann-tables\kindlmann-table-float-1024.csv",
+            "research_tools","functions","kindlmann-tables","kindlmann-table-float-1024.csv",
             base="cwd",
         )
     )
@@ -177,6 +177,7 @@ def scatter(
     show=True,
     fig=None,
     ax=None,
+    grid=False,
     **kwargs,
 ):
     """Calculate. generic discription."""
@@ -249,7 +250,8 @@ def scatter(
             tick.set_fontname("serif")
             tick.set_fontweight("bold")
             tick.set_fontsize(12)
-
+    
+    ax.grid(grid)
     # The plot is shown
     plt.tight_layout()
     if save is not None:

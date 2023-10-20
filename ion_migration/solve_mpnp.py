@@ -6,31 +6,14 @@ Created on Tue Nov  8 00:12:33 2022
 @author: jake
 """
 import os
-import pnptransport.infinite_sl_JC7 as pnpfs
+
 import logging
 import pandas as pd
 import numpy as np
 from pathlib import Path
 
-import periodictable as pt
-from utilities import Length, Time, scatter, p_find, pathlib_mk
-
-
-def g_to_atoms(element, atoms=None, grams=None):
-    if isinstance(element, str):
-        chemical = pt.formula(element)
-    else:
-        chemical = element
-    res_dict = chemical.atoms
-    res_dict["res"] = 1
-    if atoms is not None:
-        result = atoms / pt.constants.avogadro_number * chemical.mass
-    else:
-        result = grams / chemical.mass * pt.constants.avogadro_number
-    res_dict = {key: val * result for key, val in res_dict.items()}
-
-    return res_dict
-
+import fem_simulations.single_layer as pnpfs
+from research_tools.functions import convert_val, scatter, p_find, pathlib_mk
 
 def getLogger(out_path, filetag, **kwargs):
     """
@@ -50,11 +33,11 @@ def getLogger(out_path, filetag, **kwargs):
     -------
 
     """
-    name = kwargs.get("name", "")
+    name = kwargs.get('name', '')
     logFile = os.path.join(out_path, filetag + "_{}.log".format(name))
     logging.getLogger().handlers.clear()
     # get the myLogger
-    pnp_logger = logging.getLogger("simlog")
+    pnp_logger = logging.getLogger('simlog')
     pnp_logger.setLevel(logging.DEBUG)
     pnp_logger.handlers.clear()
 
@@ -65,7 +48,7 @@ def getLogger(out_path, filetag, **kwargs):
     ch = logging.StreamHandler()
     ch.setLevel(logging.DEBUG)
     # create formatter and add it to the handlers
-    formatter = logging.Formatter("%(message)s")
+    formatter = logging.Formatter('%(message)s')
     ch.setFormatter(formatter)
     fh.setFormatter(formatter)
 
@@ -75,187 +58,188 @@ def getLogger(out_path, filetag, **kwargs):
 
     return pnp_logger
 
-
 base = dict(
-    tempC=80,
-    voltage=1500,
-    thick=Length(450, "um").cm,  # 450 um
-    time_s=Time(30, "d").s,
-    diffusivity=0.75e-15,  # 1.5e-15 # nominal
-    er=2.95,  # 2.65, updated
-    material="EVA",
-    csurf=1e12,  # Surface Conc atoms/cm2 csurf_vol * thick_na.cm # Surface Conc atoms/cm2
+    tempC = 60,
+    voltage = 1500,
+    thick = convert_val(450, "um", "cm"),  # 450 um
+    time_s = convert_val(8, "d", "s"),
+    diffusivity = 3.5e-17,  # 1.5e-15 # nominal=4e-16
+    er = 2.95,  # 2.65, updated
+    material = "EVA",
+    csurf = 1e14, # Surface Conc atoms/cm2 csurf_vol * thick_na.cm # Surface Conc atoms/cm2
     # cbulk = 1e-20,
-)
+    )
 
 mesh = dict(
     voltage_pin=True,
-    # thick_na = Length(5, "nm").cm,  # 200 need 0.4 for 5e19
+    # thick_na = convert_val(5, "nm", "cm"),  # 200 need 0.4 for 5e19
     # thick_mesh = thick * 1.00,  # Percent of thickness
-    thick_mesh_ref=Length(25, "um").cm,  # 5 um
-    dx_max=Length(200, "nm").cm,  # 10 nm
-    dx_min=Length(0.001, "nm").cm,  # 0.01 nm
-    dt_max=Time(2, "hr").s,  # 10 min
+    thick_mesh_ref = convert_val(25, "um", "cm"),  # 5 um
+    dx_max = convert_val(10, "nm", "cm"),  # 10 nm
+    dx_min = convert_val(0.01, "nm", "cm"),  # 0.01 nm
+    dt_max = convert_val(6, "h", "s"),  # 10 min
     # dt_base = 3,
-)
+    )
 
 other = dict(
-    valence=0.5,
-    csurf_vol=2.24e22,  # atoms/cm3 in Na layer Na in pure NaCl = 2.2422244077479557e+22
-)
+    valence = 1,
+    csurf_vol = 2.24e+22,  # atoms/cm3 in Na layer Na in pure NaCl = 2.2422244077479557e+22
+    screen = "calc",
+    )
 
 
-# {"diffusivity": 0.75e-15, "valence": 0.5, "screen_leng": 1, "rate": 1e-8, "m_eq": 2.24e20}
+# {"diffusivity": 0.75e-15, "valence": 0.5, "screen": 0.33, "rate": 1e-8, "m_eq": 2.24e20}
 runs = {
-    "EVA_01": {"tempC": 80, "diffusivity": 1.5e-15, "valence": 1, "voltage": 0},
-    "EVA_02": {"tempC": 80, "diffusivity": 1.5e-15, "valence": 0.5, "voltage": 0},
-    "EVA_03": {
-        "tempC": 80,
-        "diffusivity": 1.5e-15,
-        "valence": 1,
-        "voltage": 0,
-        "screen_leng": 10,
-    },
-    "EVA_04": {
-        "tempC": 80,
-        "diffusivity": 1.5e-15,
-        "valence": 0.5,
-        "voltage": 0,
-        "screen_leng": 10,
-    },
-    "EVA_05": {"tempC": 70, "diffusivity": 1e-15, "valence": 1, "voltage": 0},
-    "EVA_06": {"tempC": 70, "diffusivity": 1e-15, "valence": 0.5, "voltage": 0},
-    "EVA_07": {
-        "tempC": 70,
-        "diffusivity": 1e-15,
-        "valence": 1,
-        "voltage": 0,
-        "screen_leng": 10,
-    },
-    "EVA_08": {
-        "tempC": 70,
-        "diffusivity": 1e-15,
-        "valence": 0.5,
-        "voltage": 0,
-        "screen_leng": 10,
-    },
-    "EVA_09": {
-        "tempC": 80,
-        "diffusivity": 1.5e-15,
-        "valence": 1,
-        "voltage": 0,
-        "screen": 0,
-    },
-    "EVA_10": {
-        "tempC": 70,
-        "diffusivity": 1e-15,
-        "valence": 1,
-        "voltage": 0,
-        "screen": 0,
-    },
-    # "EVA_11": {"diffusivity": 0.9e-15, "valence": 0.4, "rate": 1e-12, "screen_leng": 2},
-    # "EVA_12": {"diffusivity": 0.9e-15, "valence": 0.4, "rate": 1e-13, "m_eq": 1.12e21, "screen_leng": 2},
-}
+        # "EVA_mPNP_01": {},
+        
+        # "EVA_mPNP_02": {"rate": 5e-14},
+        # "EVA_mPNP_03": {"rate": 3e-14},
+        "EVA_mPNP_04": {"diffusivity": (3.5e-17, 8e-17)},
+        
+        # "EVA_mPNP_07": {"csurf_vol": 2.24e+18},
+        # "EVA_mPNP_08": {"csurf_vol": 2.24e+20},
+        # "EVA_mPNP_09": {"csurf_vol": 2.24e+24},
+        
+        # "EVA_PNP_01": {"screen": None},
+        # "EVA_PNP_02": {"screen": None, "valence": 0.8},
+        # "EVA_PNP_03": {"screen": None, "valence": 0.6},
+        # "EVA_PNP_04": {"screen": None, "valence": 0.4},
+        
+        # "EVA_PNP_23": {"screen": None, "valence": 0},
+        # "EVA_PNP_24": {"screen": None, "voltage": 0},
+        # "EVA_PNP_25": {"screen": None, "er": 100000},
+        # "EVA_PNP_26": {"screen": None, "voltage": 3e4, "diffusivity": 4e-17, "m_eq": 1.12e16, "dt_max": convert_val(1, "h", "s")},
+        # "EVA_PNP_27": {"screen": None, "time_s": convert_val(14, "d", "s"), "diffusivity": 4e-17, "m_eq": 1.12e16, "dt_max": convert_val(1, "h", "s")},
+        # "EVA_PNP_28": {"screen": None, "m_eq": 4.48e14},
+        # "EVA_PNP_29": {"screen": None, "csurf_vol": 2.24e+17},
+
+        # "EVA_PNP_05": {"screen": None, "er":0.1},
+        # "EVA_PNP_06": {"screen": None, "er":1},
+        # "EVA_PNP_07": {"screen": None, "er":10},
+        
+        # "EVA_PNP_08": {"screen": None, "tempC": 90},
+        # "EVA_PNP_09": {"screen": None, "tempC": 70},
+        # "EVA_PNP_10": {"screen": None, "tempC": 60},
+        
+        # "EVA_PNP_11": {"screen": None, "m_eq": 4.48e15},
+        # "EVA_PNP_12": {"screen": None, "m_eq": 4.48e17},
+        # "EVA_PNP_13": {"screen": None, "m_eq": 4.48e21},
+        
+        # "EVA_PNP_14": {"screen": None, "csurf_vol": 2.24e+18},
+        # "EVA_PNP_15": {"screen": None, "csurf_vol": 2.24e+20},
+        # "EVA_PNP_16": {"screen": None, "csurf_vol": 2.24e+24},
+        
+        # "EVA_PNP_17": {"screen": None, "diffusivity": 2e-16, "dt_max": convert_val(0.5, "h", "s"), },
+        # "EVA_PNP_18": {"screen": None, "diffusivity": 8e-16},
+        # "EVA_PNP_19": {"screen": None, "diffusivity": 1.2e-15},
+        
+        # "EVA_PNP_20": {"screen": None, "voltage": 1250},
+        # "EVA_PNP_21": {"screen": None, "voltage": 1000},
+        # "EVA_PNP_22": {"screen": None, "voltage": 750},
+        
+        }
+
+
+rpath = p_find("Data", "Raw", "Simulations", "PNP", "mPNP_60_r9")
+pathlib_mk(rpath)
+gnote = "mPNP" #"compare calc mPNP and PNP"
 
 for kw, var in runs.items():
-    note = ", ".join(
-        [f"{k}={v}" for k, v in var.items()]
-    )  # f"Debye of {v1} nm an1rr1d h={v2}"
-    file_tag = kw  # alternate 4 & 5
-    rpath = p_find("Data", "Raw", "Simulations", "PNP", "mPNP_noE_r2")
-    pathlib_mk(rpath)
+    note = gnote + ", ".join([f"{k}={v}" for k, v in var.items()]) 
+    file_tag = kw #alternate 4 & 5
+    
     h5FileName = str(rpath / Path(f"{file_tag}.h5"))
-    myLogger = getLogger(str(rpath), file_tag, name="SL")
+    myLogger = getLogger(str(rpath), file_tag, name='SL')
 
-    rate = var.pop("rate", 1e-8)  # 1e-8
-    m_eq = var.pop("m_eq", 2.24e20) / other["csurf_vol"]
+    rate = var.pop("rate",  3e-14) #0.5e-12
+    m_eq = var.pop("m_eq",  4.48e19)/var.get("csurf_vol", other["csurf_vol"])
+
+
 
     inputs = dict(
-        note=note,
-        in_flux=(
-            "interf",
-            [rate, m_eq],
-        ),  # ("box", 0) or  ("interf",[1,1]) ("surf", rate),
+        note = note,
+        in_flux = ("interf", [rate, m_eq]), #("box", 0) or  ("interf",[1,1]) ("surf", rate),
         # out_flux = ("closed", 0), # ("surf", rate), or ("box", 0) or ("interf",[1,1])
-        screen=1 / -Length(var.pop("screen_leng", 2), "nm").cm,
-        max_calls=1,
-        max_iter=500,
-        fcallLogger=myLogger,
-        h5_storage=h5FileName,
-        debug=True,
+
+        max_calls = 1,
+        max_iter = 1000,
+
+        fcallLogger = myLogger,
+        h5_storage = h5FileName,
+        debug = True,
     )
 
     inputs = {**base, **mesh, **other, **inputs, **var}
-
     def passed_func(x, c, p):
-        # if all(c < 1e5):
-        #     return
+
         try:
-            p_max_n = np.argwhere(p == p.max())[0][0]
-            p_min_n = np.argwhere(p <= (2 * p[0] - p.max()))
-            c_min_n = np.argwhere(c <= c[p_max_n:].max() * 1e-5)
+            p_max_n = np.argwhere(p==p.max())[0][0]
+            p_min_n = np.argwhere(p<=(2*p[0]-p.max()))
+            c_min_n = np.argwhere(c<=c[p_max_n:].max()*1e-5)
             # if pmax at 0 or the x where C goes "low" is beyond the 2x drop in p
-            if (
-                len(p_min_n) == 0
-                or abs(p[0]) >= abs(p.max())
-                or x[c_min_n[0][0]] >= x[p_min_n[0][0]]
-            ):
+            if len(p_min_n) == 0 or abs(p[0]) >= abs(p.max()) or x[c_min_n[0][0]] >= x[p_min_n[0][0]]:
                 xrange = c_min_n[0][0]
             else:
                 xrange = p_min_n[0][0]
         except IndexError:
             xrange = -1
 
-        scatter(
-            pd.DataFrame(np.array([x, c, p]).T, columns=["depth", "conc", "voltage"]),
-            x="depth",
-            y="conc",
-            xscale="linear",
-            yscale="log",
-            # xlimit=[0, x[np.argwhere(c<1e10)[0]]],
-            xlimit=[0, x[xrange]],  # list(x[xrange]),
-            ylimit=[c[:xrange].min() / 10, c[:xrange].max() * 10],
-            name=f"{file_tag}_conc",
-            xname=None,
-            yname=None,
-            zname=None,
-            save=rpath,
-            show=False,
-            hue=None,
-            linewidth=0,
-        )
+        if xrange == 0:
+            xrange = -1
 
-        pborder = (p[:xrange].max() - p[:xrange].min()) / 4
+        scatter(pd.DataFrame(np.array([x, c, p]).T, columns = ["depth","conc","voltage"]),
+                x="depth",
+                y="conc",
+                xscale="linear",
+                yscale="log",
+                # xlimit=[0, x[np.argwhere(c<1e10)[0]]],
+                xlimit=[0,x[xrange]], #list(x[xrange]),
+                ylimit=[c[:xrange].min()/10, c[:xrange].max()*10],
+                name=f"{file_tag}_conc",
+                xname=None,
+                yname=None,
+                zname=None,
+                save=rpath,
+                show=False,
+                hue=None,
+                linewidth=0,
+                grid=True,
+                )
+
+        pborder = (p[:xrange].max()-p[:xrange].min())/4
         pmin = p[:xrange].min() - pborder
         pmax = p[:xrange].max() + pborder
-        scatter(
-            pd.DataFrame(np.array([x, c, p]).T, columns=["depth", "conc", "voltage"]),
-            x="depth",
-            y="voltage",
-            xscale="linear",
-            yscale="linear",
-            # xlimit=[0, x[np.argwhere(c<1e10)[0]]],
-            xlimit=[0, x[xrange]],
-            # ylimit=[p[np.argwhere(c<1e10)[0]]-10,p.max()+10],
-            ylimit=[pmin, pmax],
-            name=f"{file_tag}_volt",
-            xname=None,
-            yname=None,
-            zname=None,
-            save=rpath,
-            show=False,
-            hue=None,
-            linewidth=0,
-        )
+        scatter(pd.DataFrame(np.array([x, c, p]).T, columns = ["depth","conc","voltage"]),
+                x="depth",
+                y="voltage",
+                xscale="linear",
+                yscale="linear",
+                # xlimit=[0, x[np.argwhere(c<1e10)[0]]],
+                xlimit=[0,x[xrange]],
+                # ylimit=[p[np.argwhere(c<1e10)[0]]-10,p.max()+10],
+                ylimit=[pmin, pmax],
+                name=f"{file_tag}_volt",
+                xname=None,
+                yname=None,
+                zname=None,
+                save=rpath,
+                show=False,
+                hue=None,
+                linewidth=0,
+                grid=True,
+                )
         # print("Total Na: {:e}".format(integrate.trapz(c, x*1e-4)))
 
     inputs["func"] = passed_func
 
-    # %%
-    t_sim, x1i, c1i, p1i, c_max = pnpfs.single_layer(**inputs)
 
-    df = pd.DataFrame(np.array([x1i, c1i, p1i]).T, columns=["depth", "conc", "voltage"])
+    # %%
+    
+    t_sim, x1i, c1i, p1i, c_max = pnpfs.single_layer(**inputs)
+    print("")
 
     if 0:
+        df = pd.DataFrame(np.array([x1i, c1i, p1i]).T, columns = ["depth","conc","voltage"])
         df.plot(x="depth", y="conc", logy=True, grid=True)
         df.plot(x="depth", y="voltage", grid=True)
+

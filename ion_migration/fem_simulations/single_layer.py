@@ -18,7 +18,7 @@ from dolfin import (
     exp,
 )
 import logging
-import pnptransport.utils as utils
+# import pnptransport.utils as utils
 import sympy as sp
 import h5py
 import os
@@ -28,12 +28,62 @@ from scipy import integrate
 from scipy.stats import linregress
 from datetime import datetime as date
 
-from utilities import get_filenames
+# from utilities import get_filenames
+from research_tools.functions import f_find
 
 q_red = 1.6021766208  # x 1E-19 C
 e0_red = 8.854187817620389  # x 1E-12 C^2 / J m
 CM3TOUM3 = 1e-12
 
+def format_time_str(time_s: float):
+    """
+    Returns a formatted time string
+
+    Parameters
+    ----------
+    time_s : float
+        The time in seconds
+
+
+    Returns
+    -------
+    timeStr : str
+        A string representing the time
+    """
+    time_s = abs(time_s)
+    min2s = 60
+    hr2s = min2s * 60
+    day2s = hr2s * 24
+    mon2s = day2s * 30.42
+    yr2s = day2s * 365
+
+    years = np.floor(time_s / yr2s)
+    time_s = time_s - years * yr2s
+    months = np.floor(time_s / mon2s)
+    time_s = time_s - months * mon2s
+    days = np.floor(time_s / day2s)
+    time_s = time_s - days * day2s
+    hrs = np.floor(time_s / hr2s)
+    time_s = time_s - hrs * hr2s
+    mins = np.floor(time_s / min2s)
+    time_s = time_s - mins * min2s
+
+    #    time_str = "%01d Y %02d M %02d d %02d:%02d:%02d" % (years, \
+    #        months,days,hrs,mins,time_s)
+    if years >= 1:
+        time_str = "%01dY %02dM %02dd %02d:%02d:%02d" % (years,
+                                                         months, days, hrs, mins, time_s)
+    elif months >= 1:
+        time_str = "%02dM %02dd %02d:%02d:%02d" % (months, days, hrs, mins, time_s)
+    elif days >= 1:
+        time_str = "%02dd %02d:%02d:%02d" % (days, hrs, mins, time_s)
+    elif hrs >= 1:
+        time_str = "%02d:%02d:%02d" % (hrs, mins, time_s)
+    elif mins >= 1:
+        time_str = "%02d:%02d" % (mins, time_s)
+    else:
+        time_str = "%02d" % time_s
+    return time_str
 
 def single_layer(
     tempC: float,
@@ -119,8 +169,8 @@ def single_layer(
             The base concentration cm\ :sup:`-3`.
         xpoints: int
             The number of cells in the sinx layer
-        valency: integer
-            The valency of the ion
+        valence: integer
+            The valence of the ion
             default: 1
         er: double
             The relative permittivity of the dielectric
@@ -158,7 +208,7 @@ def single_layer(
     cmax: float
         The maximum concentration in silicon nitride in cm\ :sup:`-3`\.
     """
-
+    #%% parameter imports
     # q_red = 1.6021766208  # x 1E-19 C
     # e0_red = 8.854187817620389  # x 1E-12 C^2 / J m
     voltage_pin = kwargs.get("voltage_pin", True)
@@ -175,14 +225,98 @@ def single_layer(
     max_calls = kwargs.get("max_calls", 5)
     max_iter = kwargs.get("max_iter", 1000)
 
-    valency = kwargs.get("valency", 1.0)
+    valence = kwargs.get("valence", 1.0)
     h5fn = kwargs.get("h5_storage", None)
     debug = kwargs.get("debug", False)
     relax_param = kwargs.get("relax_param", 1.0)
     note = kwargs.get("note", "None")
     func = kwargs.get("func", None)
-    screen = kwargs.get("screen", 0)
+    screen = kwargs.get("screen", None)
+    
 
+    
+    # %% Base value calculations
+    
+    # Estimate the diffusion coefficients for the given temperature
+    tempK = tempC + 273.15
+
+    epsilon = constants.epsilon_0 * er / 100  # C/Vcm
+    zq = valence * constants.elementary_charge  # C
+    
+    qee = zq / epsilon # Vcm
+    
+    kbT = constants.Boltzmann * tempK  # CV
+    
+    if isinstance(diffusivity, (list, tuple)):
+        mob = zq * diffusivity[0] / kbT
+        diffusivity = sum(diffusivity)
+    else:
+        # The constant mobility z * q * D1 / (kb * T) :: (a.u. * C * cm2/s / (C*V/K * K)) -> cm2/(Vs)
+        mob = zq * diffusivity / kbT
+    
+    if isinstance(screen, str):
+        if "calc" in screen.lower() and "inter" in in_flux[0].lower():
+            screen = np.sqrt(epsilon*kbT/(zq**2*in_flux[1][1]*csurf_vol))*1e7  # cm
+        elif "none" in screen.lower():
+            screen = None
+
+    # %% sympy stuff
+    # Generate the initial profile
+    f = sp.symbols("f", cls=sp.Function)
+    x = sp.Symbol("x[0]", real=True)
+
+    ode_vbias = sp.Eq(f(x).diff(x, x), 0)
+    f_vbias = sp.dsolve(ode_vbias, f(x), simplify=False, ics={f(0): voltage, f(thick): 0})
+
+    if thick_na == 0:
+        thick_na  = dx_max/2**int(np.log(dx_max / dx_min) / np.log(2))*2
+        conc = sp.Piecewise(
+            (0, x < 0),
+            (csurf, x <= thick_na),  # CM3TOUM3
+            (cbulk, x <= thick),  # CM3TOUM3
+            (0, x > thick),
+            evaluate=False,
+        )
+
+        ion_dens = sp.Piecewise(
+            (0, x < 0),
+            (qee * csurf, x <= thick_na),  # CM3TOUM3
+            (qee * cbulk, x <= thick),  # CM3TOUM3
+            (0, x > thick),
+            evaluate=False,
+        )
+
+    else:
+        conc = sp.Piecewise(
+            (0, x < 0),
+            (csurf_vol, x <= thick_na),  # CM3TOUM3
+            (cbulk, x <= thick),  # CM3TOUM3
+            (0, x > thick),
+            evaluate=False,
+        )
+
+        ion_dens = sp.Piecewise(
+            (0, x < 0),
+            (qee * csurf_vol, x <= thick_na),  # CM3TOUM3
+            (qee * cbulk, x <= thick),  # CM3TOUM3
+            (0, x > thick),
+            evaluate=False,
+        )
+    if ion_dens.simplify() == 0:
+        f_vs = f_vbias
+    else:
+        ode_v = sp.Eq(f(x).diff(x, x), -1 * ion_dens)
+
+        eion_s = sp.integrate(x / thick * conc, (x, 0, thick)) * -1 * qee
+
+        f_vs = sp.dsolve(
+            ode_v,
+            f(x),
+            simplify=False,
+            ics={f(x).diff(x).subs(x, thick): float((f_vbias.rhs.diff(x) + eion_s)), f(thick): 0},
+        )        
+ 
+    # %% Logger
     fcallLogger = logging.getLogger("simlog")
 
     # Chose the backend type
@@ -194,19 +328,7 @@ def single_layer(
     else:
         fcallLogger.warning("DOLFIN has not been configured with PETSc or Eigen.")
         exit()
-
-    # Estimate the diffusion coefficients for the given temperature
-    tempK = tempC + 273.15
-
-    # Transform everything to um, s
-    # D1ums = diffusivity * 1e8
-
-    # The constant mobility z * q * D1 / (kb * T) :: (a.u. * C * cm2/s / (C*V/K * K)) -> cm2/(Vs)
-    mob = valency * constants.elementary_charge * diffusivity / (constants.Boltzmann * tempK)
-    # mu2 = 0.0
-    # The constant z * q / (e0 * er) :: (a.u. * C / (C/Vm * a.u.)) -> Vm * 100 -> Vcm
-    qee = valency * constants.elementary_charge / (constants.epsilon_0 * er) * 100
-
+    
     dlf.set_log_level(50)
     logging.getLogger("FFC").setLevel(logging.WARNING)
 
@@ -214,7 +336,7 @@ def single_layer(
         fcallLogger.info("********* Global parameters *********")
         fcallLogger.info("Start: {}".format(date.now().strftime("%D_%H:%M:%S")))
         fcallLogger.info("-------------------------------------")
-        fcallLogger.info("Time: {0}".format(utils.format_time_str(time_s)))
+        fcallLogger.info("Time: {0}".format(format_time_str(time_s)))
         fcallLogger.info("Temperature: {0:.1f} °C".format(tempC))
         if "inter" in out_flux[0].lower():
             fcallLogger.info("Source concentration: {0:.4E} (Na atoms/cm^3)".format(csurf_vol))
@@ -229,18 +351,36 @@ def single_layer(
         fcallLogger.info("D: {0:.4E} cm^2/s".format(diffusivity))
         fcallLogger.info("Ionic mobility: {0:.4E} um^2/ V*s".format(mob * 1e8))
 
-    # Create classes for defining parts of the boundaries and the interior
-    # of the domain
+    # %% make dt's
+    dt = dt_max
+    num_t = 50
+    dtt = [dt_max / (dt_base * k) for k in range(1, num_t)]
+    t1 = []
+    for k in dtt:
+        dt -= k
+        t1.append(dt)
+    t1 = np.array(t1)[np.array(t1) > 0][::-1]
+    t2 = np.array([k * dt_max for k in range(1, int(time_s / dt_max) + 1)], dtype=np.float64)
+    t_sim = np.concatenate([[0], t1, t2])
+    dtt = np.concatenate([np.diff(t_sim), [dt_max]])
 
-    tol = 1e-12
+    if t_sim[-1] != time_s:
+        t_sim = np.append(t_sim, time_s)
+        dtt = np.append(dtt, np.diff(t_sim)[-1])
+
+    # dtt = np.concatenate([t1[0], dtt, [dt]])
+    size_n = len(dtt)
+    del dt, num_t, t1, t2
+
+    # %% Dolphin FEM Meshing
 
     class Top(dlf.SubDomain):
         def inside(self, x_, on_boundary):
-            return near(x_[0], 0.0, tol) and on_boundary
+            return near(x_[0], 0.0, 1e-12) and on_boundary
 
     class Bottom(dlf.SubDomain):
         def inside(self, x_, on_boundary):
-            return near(x_[0], thick_mesh, tol) and on_boundary
+            return near(x_[0], thick_mesh, 1e-12) and on_boundary
 
     def get_solution_array(mesh, sol):
         c_, phi = sol.split()
@@ -277,16 +417,10 @@ def single_layer(
             )
 
         thick_mesh_ref = thick_mesh_ref / 1.5
+    
 
-    if debug:
-        fcallLogger.info("Refined meshes.")
-        fcallLogger.info("********** Mesh 1 **********")
-        fcallLogger.info("Elements: {0}".format(len(mesh1.coordinates())))
-        fcallLogger.info(
-            "MIN DX: {0:.3E} um, MAX DX {1:.3E} um".format(mesh1.hmin() * 1e4, mesh1.hmax() * 1e4)
-        )
-        fcallLogger.info("DX Ranges: {0}".format(", ".join(nor_ranges)))
-
+    
+    # %% Dolphin FEM Meshing
     # Initialize mesh function for boundary domains
     boundaries1 = dlf.MeshFunction("size_t", mesh1, mesh1.topology().dim() - 1)
     boundaries1.set_all(0)
@@ -298,58 +432,7 @@ def single_layer(
     ds1 = dlf.Measure("ds", domain=mesh1, subdomain_data=boundaries1)
     dx1 = dlf.Measure("dx", domain=mesh1, subdomain_data=boundaries1)
 
-    # Generate the initial profile
-    f = sp.symbols("f", cls=sp.Function)
-    x = sp.Symbol("x[0]", real=True)
-
-    ode_vbias = sp.Eq(f(x).diff(x, x), 0)
-    f_vbias = sp.dsolve(ode_vbias, f(x), simplify=False, ics={f(0): voltage, f(thick): 0})
-
-    if thick_na == 0:
-        conc = sp.Piecewise(
-            (0, x < 0),
-            (csurf, x <= mesh1.hmin()*2),  # CM3TOUM3
-            (cbulk, x <= thick),  # CM3TOUM3
-            (0, x > thick),
-            evaluate=False,
-        )
-
-        ion_dens = sp.Piecewise(
-            (0, x < 0),
-            (qee * csurf, x <= mesh1.hmin()*2),  # CM3TOUM3
-            (qee * cbulk, x <= thick),  # CM3TOUM3
-            (0, x > thick),
-            evaluate=False,
-        )
-
-    else:
-        conc = sp.Piecewise(
-            (0, x < 0),
-            (csurf_vol, x <= thick_na),  # CM3TOUM3
-            (cbulk, x <= thick),  # CM3TOUM3
-            (0, x > thick),
-            evaluate=False,
-        )
-
-        ion_dens = sp.Piecewise(
-            (0, x < 0),
-            (qee * csurf_vol, x <= thick_na),  # CM3TOUM3
-            (qee * cbulk, x <= thick),  # CM3TOUM3
-            (0, x > thick),
-            evaluate=False,
-        )
-
-    ode_v = sp.Eq(f(x).diff(x, x), -1 * ion_dens)
-
-    eion_s = sp.integrate(x / thick * conc, (x, 0, thick)) * -1 * qee
-
-    f_vs = sp.dsolve(
-        ode_v,
-        f(x),
-        simplify=False,
-        ics={f(x).diff(x).subs(x, thick): float((f_vbias.rhs.diff(x) + eion_s)), f(thick): 0},
-    )
-
+    # %% Dolphin FEM meshing
     ftrial_t0 = dlf.Expression(
         (sp.printing.ccode(conc.evalf()), sp.printing.ccode(f_vs.rhs)), degree=1
     )
@@ -377,6 +460,7 @@ def single_layer(
     ftrial_tig.set_allow_extrapolation(True)
     ftrial_ti0.set_allow_extrapolation(True)
 
+    # %% Dolphin FEM bc
     def mid_bias(x_arr, y_arr, l_pnts, x2):
         # array of len x_arr with true for linear region
         ind = np.argmax(np.diff(y_arr) / np.diff(y_arr)[int(len(y_arr) * -0.01):].mean())
@@ -403,7 +487,18 @@ def single_layer(
 
     thick_flux = diffusivity / mesh1.hmin() / 10
 
+    # %% Dolphin FEM functions
     def get_variational_form(c_ftrial, phi_ftrial, gp1_, gp2_, time_i):
+        """
+        Generate voltage bc
+        
+        non-imported terms:
+            csurf, csurf_vol, in_flux
+            screen, zq, kbT, mob
+            c_ftest, phi_ftest
+            dx1, ds1
+                        
+        """
         c_grad_01 = -mob * c_ftrial * gp1_
         if "surf" in in_flux[0].lower():
             c_grad_01 += in_flux[1] * csurf  # * 1e-8
@@ -421,8 +516,15 @@ def single_layer(
             c_grad_12 = 0.0
         elif thick != thick_mesh:
             c_grad_12 -= thick_flux * c_ftrial
+        
+        
+        if isinstance(screen, str):
+            scr_exp = exp(-1 * zq * phi_ftrial / kbT)
+        elif screen is None or screen == 0:
+            scr_exp = 1
+        else:
+            scr_exp = dlf.Expression("exp(-1*kd*x[0])", kd=abs(1/(screen*1e-7)), degree=1)
 
-        integ_xi = dlf.Expression("exp(kd*x[0])", kd=screen, degree=1)
 
         a = -diffusivity * inner(grad(c_ftrial), grad(c_ftest)) * dx1  # Anp term 1
         a += c_grad_01 * c_ftest * ds1(1)  # Anp term2 in; i.e. bc in
@@ -432,24 +534,43 @@ def single_layer(
         a += mob * gp2_ * c_ftrial * c_ftest * ds1(2)  # Anp term 4 out
 
         a -= inner(grad(phi_ftrial), grad(phi_ftest)) * dx1  # Ap term 1
-        a += qee * c_ftrial * phi_ftest * integ_xi * dx1  # Anp term 3
+        a += qee * c_ftrial * phi_ftest * scr_exp * dx1  # Anp term 3
+        # a += qee * c_ftrial * phi_ftest * exp(exp_val*phi_ftrial) * dx1  # Anp term 3
+        # a += qee * c_ftrial * phi_ftest * (exp(exp_val*phi_ftrial) - exp(-exp_val*phi_ftrial)) * dx1  # Anp term 3
         a += gp1_ * phi_ftest * ds1(1)  # Anp term 2 in
         a += gp2_ * phi_ftest * ds1(2)  # Anp term 2 out
 
         return a
 
     def getTRBDF2ta(c_ftrial, phi_ftrial):
-        integ_xi = dlf.Expression("exp(kd*x[0])", kd=screen, degree=1)
+        if isinstance(screen, str):
+            scr_exp = exp(-1 * zq * phi_ftrial / kbT)
+        elif screen is None or screen == 0:
+            scr_exp = 1
+        else:
+            scr_exp = dlf.Expression("exp(-1*kd*x[0])", kd=abs(1/(screen*1e-7)), degree=1)
+            
+        # integ_xi = dlf.Expression("exp(kd*x[0])", kd=screen, degree=1)
+        # exp_val = -1 * constants.e * valence / (constants.Boltzmann * tempK)
         r = (
             diffusivity * div(grad(c_ftrial))
             + div(grad(phi_ftrial))
             + mob * c_ftrial * div(grad(phi_ftrial))
             + mob * inner(grad(phi_ftrial), grad(c_ftrial))
-            + qee * c_ftrial * integ_xi
+            + qee * c_ftrial * scr_exp
+            # + qee * c_ftrial * exp(exp_val*phi_ftrial)
+            # + qee * c_ftrial * (exp(exp_val*phi_ftrial) - exp(-exp_val*phi_ftrial))
         )
         return r
 
     def update_potential_bc(uui, bias: float = voltage):
+        """
+        Generate voltage bc
+        
+        non-imported terms:
+            screen, zq, kbT, valence, thick, bias, er
+            
+        """
         # The total concentration in the oxide (um-2)
         #        c_ftrial,phi_ftrial = ui.split()
         #        Ctot = assemble(c_ftrial*dx)
@@ -459,22 +580,37 @@ def single_layer(
 
         # Get the solution in an array form
         uxi, uci, upi = get_solution_array(mesh1, uui)
+        
+        if isinstance(screen, str):
+            scr_exp = np.exp(-1 * zq * upi / kbT)
+        elif screen is None or screen == 0:
+            scr_exp = 1
+        else:
+            scr_exp = np.exp(-1 * abs(1/(screen*1e-7)) * uxi)
 
+        # exp_val = -1 * constants.e * valence / (constants.Boltzmann * tempK)
+        
         # The integrated concentration in the oxide (cm-2) <- Check: (1/cm^3) x (um) x (1E-4 cm/1um)
-        Ctot_ = integrate.simps(uci * np.exp(screen * uxi), uxi)  # * 1e-4
+        Ctot_ = integrate.simps(uci * scr_exp, uxi)  # * 1e-4
+        # Ctot_ = integrate.simps(uci * np.exp(exp_val * upi), uxi)
+        # Ctot_ = np.nan_to_num(integrate.simpson(uci * (np.exp(exp_val * upi)-np.exp(-exp_val * upi)), uxi))
         # The integral in Poisson's equation solution (Nicollian & Brews p.426)
         # units: 1/cm <------------- Check: (1/cm^3) x (um^2) x (1E-4 cm/1um)^2
-        Cint_ = integrate.simps(uxi * uci * np.exp(screen * uxi), uxi)  # * 1e-8
+        Cint_ = integrate.simps(uxi * uci * scr_exp, uxi)  # * 1e-8
+        # Cint_ = integrate.simps(uxi * uci * np.exp(exp_val * upi), uxi)
+        # Cint_ = np.nan_to_num(integrate.simpson(uxi * uci * (np.exp(exp_val * upi)-np.exp(-exp_val * upi)), uxi))
         # The centroid of the charge distribution
-        xbar_ = Cint_ / Ctot_  # * 1e4
+        xbar_ = uxi.mean()
+        if Ctot_ != 0:
+            xbar_ = Cint_ / Ctot_  # * 1e4
 
         # The surface charge density at silicon C/cm2
-        scd_si = -constants.e * (xbar_ / thick) * Ctot_
-        # scd_si2 = -constants.e * integrate.simps( uxi / thick * uci * np.exp(screen * uxi), uxi)
+        scd_si = -1 * constants.e * valence * (xbar_ / thick) * Ctot_
+        # scd_si2 = -1 * constants.e * valence * integrate.simps( uxi / thick * uci * np.exp(screen * uxi), uxi)
         # The surface charge density at the gate C/cm2
-        scd_g = -constants.e * (1.0 - xbar_ / thick) * Ctot_
-        # scd_g2 = constants.e * integrate.simps((uxi - thick) / thick * uci * np.exp(screen * uxi), uxi)
-
+        scd_g = -1 * constants.e * valence * (1.0 - xbar_ / thick) * Ctot_
+        # scd_g2 = constants.e * valence * integrate.simps((uxi - thick) / thick * uci * np.exp(screen * uxi), uxi)
+        uei = np.diff(upi)/np.diff(uxi)
         # The applied electric field in V/cm
         field_app = bias / thick
         # The electric field at the gate interface V/um
@@ -485,16 +621,9 @@ def single_layer(
         gp2_ = -(field_app - scd_si / (constants.epsilon_0 * er) * 100)  # x
         # gp2_2 = -(field_app - scd_si2 / (constants.epsilon_0 * er) * 100)  # x
 
-        # Since grad(phi) = -field
-        # s1: <-
-        # s2: ->
-        #        gp1 = field_source
-        # gp1_ = field_source_
-        # gp2_ = -field_sink_
-
         return gp1_, gp2_, Cint_, Ctot_, xbar_
 
-    hk1 = dlf.CellDiameter(mesh1)
+    # %% Dolphin FEM stuff
 
     GAMMA = 2.0 - np.sqrt(2.0)  # 0.59
     TRF = dlf.Constant(0.5 * GAMMA)
@@ -516,54 +645,51 @@ def single_layer(
             "relaxation_parameter": relax_param,
         },
     }
+    
+    def SUPG_terms(trial_t0, trial_t1):
+        b_ = mob * dlf.Dx(trial_t0, 0)
+        nb_ = sqrt(dot(b_, b_) + dlf.DOLFIN_EPS)
+        Pek = nb_ * dlf.CellDiameter(mesh1) / (2.0 * diffusivity)
 
-    def get_solvers_1(gp1_, gp2_, dt_, time_i, xxi):
-        a10 = get_variational_form(c_ftrial_ti0, phi_ftrial_ti0, gp1_, gp2_, time_i)
-        a1G = get_variational_form(c_ftrial_tig, phi_ftrial_tig, gp1_, gp2_, time_i)
+        tau_ = dlf.conditional(
+            gt(Pek, dlf.DOLFIN_EPS),
+            (dlf.CellDiameter(mesh1) / (2.0 * nb_))
+            * (((exp(2.0 * Pek) + 1.0) / (exp(2.0 * Pek) - 1.0)) - 1.0 / Pek),
+            0.0,
+        )
+
+        Lss_ = (
+            mob * inner(grad(trial_t1), grad(c_ftest))
+            + (mob / 2) * div(grad(trial_t1)) * c_ftest
+        )
+        
+        return tau_, Lss_
+    
+    def solve_1N(gp1_, gp2_, dt_, time_i):
+        """
+        Generate dlf solvers
+        
+        non-imported terms:
+            c_ftrial_ti0, c_ftrial_tig, c_ftrial_ti1
+            phi_ftrial_ti0, phi_ftrial_tig, phi_ftrial_ti1
+            c_ftest
+            dx1
+            TRF, BDF2_T1, BDF2_T2, BDF2_T3
+            mob, diffusivity
+            ftrial_tig, ftrial_ti1, du1
+            bcs, ffc_options, newton_solver_parameters
+            
+        """
         a11 = get_variational_form(c_ftrial_ti1, phi_ftrial_ti1, gp1_, gp2_, time_i)
 
-        F1G = (1.0 / dt_) * (c_ftrial_tig - c_ftrial_ti0) * c_ftest * dx1 - TRF * (a1G + a10)
         F1N = (1.0 / dt_) * (
             c_ftrial_ti1 - BDF2_T1 * c_ftrial_tig + BDF2_T2 * c_ftrial_ti0
         ) * c_ftest * dx1 - BDF2_T3 * a11
-
-        # SUPG stabilization
-        b1_ = mob * dlf.Dx(phi_ftrial_ti0, 0)
-        nb1 = sqrt(dot(b1_, b1_) + dlf.DOLFIN_EPS)
-        Pek1 = nb1 * hk1 / (2.0 * diffusivity)
-
-        b2_ = mob * dlf.Dx(phi_ftrial_tig, 0)
-        nb2 = sqrt(dot(b2_, b2_) + dlf.DOLFIN_EPS)
-        Pek2 = nb2 * hk1 / (2.0 * diffusivity)
-
-        tau1 = dlf.conditional(
-            gt(Pek1, dlf.DOLFIN_EPS),
-            (hk1 / (2.0 * nb1))
-            * (((exp(2.0 * Pek1) + 1.0) / (exp(2.0 * Pek1) - 1.0)) - 1.0 / Pek1),
-            0.0,
-        )
-        tau2 = dlf.conditional(
-            gt(Pek2, dlf.DOLFIN_EPS),
-            (hk1 / (2.0 * nb2))
-            * (((exp(2.0 * Pek2) + 1.0) / (exp(2.0 * Pek2) - 1.0)) - 1.0 / Pek2),
-            0.0,
-        )
-
-        #  get the skew symmetric part of the L operator
-        # LSSNP = dot(vel2,dlf.Dx(v2,0))
-        Lss1 = (
-            mob * inner(grad(phi_ftrial_tig), grad(c_ftest))
-            + (mob / 2) * div(grad(phi_ftrial_tig)) * c_ftest
-        )
-        Lss2 = (
-            mob * inner(grad(phi_ftrial_ti1), grad(c_ftest))
-            + (mob / 2) * div(grad(phi_ftrial_ti1)) * c_ftest
-        )
+        
+        tau, Lss = SUPG_terms(phi_ftrial_tig, phi_ftrial_ti1)
+        
         # SUPG Stabilization term
-        ta = getTRBDF2ta(c_ftrial_tig, phi_ftrial_tig)
-        tb = getTRBDF2ta(c_ftrial_ti0, phi_ftrial_ti0)
         tc = getTRBDF2ta(c_ftrial_ti1, phi_ftrial_ti1)
-        ra = inner(((1 / dt_) * (c_ftrial_tig - c_ftrial_ti0) - TRF * (ta + tb)), tau1 * Lss1) * dx1
         rb = (
             inner(
                 (
@@ -572,64 +698,70 @@ def single_layer(
                     + BDF2_T2 * c_ftrial_ti0 / dt_
                     - BDF2_T3 * tc
                 ),
-                tau2 * Lss2,
+                tau * Lss,
             )
             * dx1
         )
 
-        F1G += ra
         F1N += rb
 
-        J1G = dlf.derivative(F1G, ftrial_tig, du1)
         J1N = dlf.derivative(F1N, ftrial_ti1, du1)  # J1G
 
         problem1N = dlf.NonlinearVariationalProblem(
             F1N, ftrial_ti1, bcs, J1N, form_compiler_parameters=ffc_options
         )
+        solver1N_ = dlf.NonlinearVariationalSolver(problem1N)
+        solver1N_.parameters.update(newton_solver_parameters)
+        solver1N_.solve()
+
+    def solve_1G(gp1_, gp2_, dt_, time_i):
+        """
+        Generate dlf solvers
+        
+        non-imported terms:
+            c_ftrial_ti0, c_ftrial_tig, c_ftrial_ti1
+            phi_ftrial_ti0, phi_ftrial_tig, phi_ftrial_ti1
+            c_ftest
+            dx1
+            TRF, BDF2_T1, BDF2_T2, BDF2_T3
+            mob, diffusivity
+            ftrial_tig, ftrial_ti1, du1
+            bcs, ffc_options, newton_solver_parameters
+            
+        """
+        a10 = get_variational_form(c_ftrial_ti0, phi_ftrial_ti0, gp1_, gp2_, time_i)
+        a1G = get_variational_form(c_ftrial_tig, phi_ftrial_tig, gp1_, gp2_, time_i)
+
+        F1G = (1.0 / dt_) * (c_ftrial_tig - c_ftrial_ti0) * c_ftest * dx1 - TRF * (a1G + a10)
+
+        tau, Lss = SUPG_terms(phi_ftrial_ti0, phi_ftrial_tig)
+        
+        # SUPG Stabilization term
+        ta = getTRBDF2ta(c_ftrial_tig, phi_ftrial_tig)
+        tb = getTRBDF2ta(c_ftrial_ti0, phi_ftrial_ti0)
+
+        ra = inner(((1 / dt_) * (c_ftrial_tig - c_ftrial_ti0) - TRF * (ta + tb)), tau * Lss) * dx1
+
+        F1G += ra
+
+        J1G = dlf.derivative(F1G, ftrial_tig, du1)
+
         problem1G = dlf.NonlinearVariationalProblem(
             F1G, ftrial_tig, bcs, J1G, form_compiler_parameters=ffc_options
         )
-        solver1N_ = dlf.NonlinearVariationalSolver(problem1N)
-        solver1N_.parameters.update(newton_solver_parameters)
+
         solver1G_ = dlf.NonlinearVariationalSolver(problem1G)
         solver1G_.parameters.update(newton_solver_parameters)
+        solver1G_.solve()
 
-        # Return the solvers and the variational forms to get an estimate of the truncation error
-        return solver1N_, solver1G_, a10, a1G, a11
 
-    dt = dt_max
-    num_t = 50
-    dtt = [dt_max / (dt_base * k) for k in range(1, num_t)]
-    t1 = []
-    for k in dtt:
-        dt -= k
-        t1.append(dt)
-    t1 = np.array(t1)[np.array(t1) > 0][::-1]
-    t2 = np.array([k * dt_max for k in range(1, int(time_s / dt_max) + 1)], dtype=np.float64)
-    t_sim = np.concatenate([[0], t1, t2])
-    dtt = np.concatenate([np.diff(t_sim), [dt_max]])
-    
-    if t_sim[-1] != time_s:
-        t_sim = np.append(t_sim, time_s)
-        dtt = np.append(dtt, np.diff(t_sim)[-1])
-    
-    # dtt = np.concatenate([t1[0], dtt, [dt]])
-    size_n = len(dtt)
-    del dt, num_t, t1, t2
 
-    if debug:
-        fcallLogger.info("**** Time stepping *****")
-        fcallLogger.info(
-            "Min dt: {0}, Max dt: {1}.".format(
-                utils.format_time_str(np.amin(dtt)), utils.format_time_str(np.amax(dtt))
-            )
-        )
-        fcallLogger.info("Simulation time: {0}.".format(utils.format_time_str(time_s)))
-        fcallLogger.info("Number of time steps: {0}".format(len(t_sim)))
 
+    # %% Get initial vals
     x1i, c1i, p1i = get_solution_array(mesh1, ftrial_ti0)
     c_max = -np.inf
 
+    # %% Save to hdf
     if h5fn is not None:
         h5fn_tmp = "".join([h5fn[:-3], date.now().strftime("_%H_%M"), h5fn[-3:]])
         if os.path.exists(h5fn_tmp):
@@ -664,19 +796,39 @@ def single_layer(
                     continue
                 if isinstance(va, tuple) and isinstance(va[0], str):
                     grp_l1.attrs[f"{kw}_{va[0]}"] = va[1]
-                elif "screen" in kw.lower() and va != 0:
-                    grp_l1.attrs[kw] = -1 / va * 1e7
+                elif "screen" in kw.lower() and va is None:
+                    grp_l1.attrs[kw] = "None"
+                elif "screen" in kw.lower() and not isinstance(screen, str):
+                    grp_l1.attrs[kw] = screen  
                 else:
                     grp_l1.attrs[kw] = va
 
             grp_l1.create_group("concentration")
             grp_l1.create_group("potential")
 
+
+    # %% Logger
+    if debug:
+        fcallLogger.info("********** Mesh 1 **********")
+        fcallLogger.info("Elements: {0}".format(len(mesh1.coordinates())))
+        fcallLogger.info(
+            "MIN DX: {0:.3E} um, MAX DX {1:.3E} um".format(mesh1.hmin() * 1e4, mesh1.hmax() * 1e4)
+        )
+        fcallLogger.info("DX Ranges: {0}".format(", ".join(nor_ranges)))
+        fcallLogger.info("**** Time stepping *****")
+        fcallLogger.info(
+            "Min dt: {0}, Max dt: {1}.".format(
+                format_time_str(np.amin(dtt)), format_time_str(np.amax(dtt))
+            )
+        )
+        fcallLogger.info("Simulation time: {0}.".format(format_time_str(time_s)))
+        fcallLogger.info("Number of time steps: {0}".format(len(t_sim)))
+        fcallLogger.info("Starting time integration loop...")
+
+    # %% Loop
     """
     This section starts the integration loop
-    """
-    if debug:
-        fcallLogger.info("Starting time integration loop...")
+    """    
 
     for n, t in enumerate(t_sim):
         dti = dtt[n]
@@ -717,7 +869,7 @@ def single_layer(
                     dsv1.attrs["time"] = t
 
         if n == (size_n - 1) or debug:
-            prog_str = "%s, " % utils.format_time_str(time_s=t)
+            prog_str = "%s, " % format_time_str(time_s=t)
             if xbar < 1:
                 prog_str += "Qb={0:.3g} nm, ".format(xbar * 1e3 * 1e4)
             else:
@@ -752,7 +904,7 @@ def single_layer(
             if any(c1i < 0):
                 raise RuntimeError("Invalid Concentration Values")
             # c1i[np.argmax(c1i <= cbulk):] = cbulk
-            solver1N, solver1G, f_00, f_01, f_02 = get_solvers_1(gp1, gp2, dti, t, x1i)
+            solver1N, solver1G, f_00, f_01, f_02 = solve_1G(gp1, gp2, dti, t)
             solver1G.solve()
 
             # Update the electric potential gradients
@@ -763,7 +915,7 @@ def single_layer(
                 _,
                 _,
             ) = update_potential_bc(ftrial_tig, bias=voltage)
-            solver1N, solver1G, _, _, _ = get_solvers_1(gp1, gp2, dti, t, x1i)
+            solver1N, solver1G, _, _, _ = solve_1N(gp1, gp2, dti, t)
 
             solver1N.solve()
             # Update previous solution
@@ -779,7 +931,7 @@ def single_layer(
                 t / 3600, diffusivity, c1i[-1] * 1e1
             )
             message += "T = {0:3.1f} °C, E = {1:.1E} MV/cm, tmax: {2:3.2f} hr, XPOINTS = {3:d}, tpoints: {4}".format(
-                tempC, voltage / thick * 1e-6, time_s / 3600, xpoints, utils.format_time_str(dt_max)
+                tempC, voltage / thick * 1e-6, time_s / 3600, xpoints, format_time_str(dt_max)
             )
             fcallLogger.info(message)
             if fcall <= max_calls:
@@ -787,7 +939,7 @@ def single_layer(
 
                 fcallLogger.info(
                     "Trying with a smaller dt: {0}, refinement step: {1:d}".format(
-                        utils.format_time_str(dt_max), fcall
+                        format_time_str(dt_max), fcall
                     )
                 )
                 fcall += 1
@@ -819,9 +971,12 @@ def single_layer(
         if os.path.exists(h5fn):
             os.remove(h5fn)
         os.rename(h5fn_tmp, h5fn)
-        hf_nms, hf_pths = get_filenames(
-            os.sep.join(h5fn.split(os.sep)[:-1]), file_type=".h5", as_path=False, as_name=False
-        )
+
+        hf_pths = [f for f in f_find(os.sep.join(h5fn.split(os.sep)[:-1]), re_filter=".h5")]
+        hf_nms = [f.stem for f in hf_pths]
+        # hf_nms, hf_pths = get_filenames(
+        #     os.sep.join(h5fn.split(os.sep)[:-1]), file_type=".h5", as_path=False, as_name=False
+        # )
         [
             os.remove(hf_pths[n])
             for n, f in enumerate(hf_nms)

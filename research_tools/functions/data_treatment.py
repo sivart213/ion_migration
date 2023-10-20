@@ -12,8 +12,11 @@ import pandas as pd
 import sympy as sp
 import sympy.physics.units as su
 
+from collections.abc import Mapping, Iterable
+from dataclasses import dataclass, fields, _FIELDS, _FIELD, InitVar # astuple, asdict
+
 from inspect import getfullargspec
-from dataclasses import dataclass, InitVar
+# from dataclasses import dataclass, InitVar
 from scipy.optimize import curve_fit
 
 
@@ -35,6 +38,26 @@ temperature_eqns = dict(
 
 
 # %% Equation Manipulators
+def is_iter(obj): 
+    return hasattr(obj, '__iter__') and not isinstance(obj, str)
+
+def is_array(obj): 
+    return isinstance(obj, (np.ndarray, sp.Array))
+
+def is_number(obj): 
+    return isinstance(obj, (int, float, np.number, sp.Number))
+
+def is_numeric(obj):
+    if is_iter(obj):
+        return all([is_number(o) for o in obj])
+    return is_number(obj)
+
+def is_symbolic(obj): 
+    return isinstance(obj, sp.Symbol) and not isinstance(obj, sp.Number)
+
+def is_sympy(obj): 
+    return isinstance(obj, sp.Basic) and not isinstance(obj, sp.Number)
+
 def has_units(arg):
     return any(
         [
@@ -68,7 +91,7 @@ def has_symbols(arg):
 
 
 def all_symbols(arg):
-    return all([isinstance(v, sp.Basic) for v in arg.values()])
+    return all([isinstance(v, sp.Basic) or v == 1 or "kwargs" in k for k, v in arg.items()])
 
 
 def pick_math_module(arg):
@@ -373,6 +396,22 @@ def extract_arguments(func, method="str", **kwargs):
         return [str(r) for r in res]
     return res
 
+def extract_variable(expr, targ):
+    try:
+        res = [var for var in expr.free_symbols if targ == str(var)]
+        if len(res) == 1:
+            return res
+        for ar in expr.args:
+            if targ == str(ar.func):
+                return ar.func
+            if "function" in str(ar.func) or "relational" in str(ar.func):
+                res.append(extract_variable(ar, targ))
+        if len(res) == 0:
+            res = [var for var in expr.free_symbols if targ in str(var)]
+        return res
+    except AttributeError:
+        print("Must pass sympy object")
+        return []
 
 def curve_fit_wrap(fcn, pnts, **params):
     """Calculate. generic discription."""
@@ -383,6 +422,8 @@ def curve_fit_wrap(fcn, pnts, **params):
     }
     fit = curve_fit(fcn, pnts[:, 0], pnts[:, 1], **params)
     return [fit[0], np.sqrt(np.diag(fit[1]))]
+
+
 
 
 # %% Converters
@@ -513,6 +554,21 @@ def parse_constant(const, unit_system="SI"):
         const, [unit_system.derived_units[d] for d in dims], unit_system
     )
 
+def parse_number(expr, targ):
+    try:
+        res = [var for var in expr.free_symbols if targ == str(var)]
+        if len(res) == 1:
+            return res
+        for ar in expr.args:
+            if "function" in str(ar.func) or "relational" in str(ar.func):
+                res = res + parse_number(ar, targ)
+        if len(res) == 0:
+            res = [var for var in expr.free_symbols if targ in str(var)]
+        return res
+    except AttributeError:
+        print("Must pass sympy object")
+        return []
+
 
 def parse_unit(expr, unit_system="SI"):
     if isinstance(expr, sp.Number) or not isinstance(expr, sp.Basic):
@@ -577,14 +633,14 @@ def myround(x, base=5):
     return base * round(float(x) / base)
 
 
-def closest(K, lst):
-    """Calculate. generic discription."""
-    # lst = np.asarray(lst)
-    idx = (np.abs(lst - K)).argmin()
-    return lst[idx]
+# def closest(val, arr):
+#     """Find closest value to target in array"""
+#     # lst = np.asarray(lst)
+#     idx = (np.abs(arr - val)).argmin()
+#     return arr[idx]
 
 
-def myprint(filename, *info):
+def print_to_txt(filename, *info):
     """Calculate. generic discription."""
     print_file = open(filename, "a+")
     args = ""
@@ -595,6 +651,12 @@ def myprint(filename, *info):
     print_file.close()
     return
 
+def nprint(val, prec=2):
+    if isinstance(val, int):
+        if np.log10(abs(val)) < 3:
+            return val
+    
+            
 
 def find_nearest(array, target, index=True):
     """Get the nearest value in array or its index to target"""
@@ -655,6 +717,133 @@ def sample_array(array, get_index=False, **kwargs):
     return res
 
 
+def insert_attr_row(data, attrs, str_func, **kwargs):
+    data=data.copy() # dict
+    for k, df in data.items():
+        if attrs is not None and k in attrs.index:
+            if str_func is None:
+                comm = ""
+                
+            else:
+                comm = str_func(attrs.loc[k, :], **kwargs) # str
+            df_tmp = pd.DataFrame([[comm]*df.shape[1]], index=["Comments"], columns=df.columns)  # df
+            data[k] = pd.concat([df_tmp, df])
+
+def format_time_str(time_s: float):
+    """
+    Returns a formatted time string
+
+    Parameters
+    ----------
+    time_s : float
+        The time in seconds
+
+
+    Returns
+    -------
+    timeStr : str
+        A string representing the time
+    """
+    time_s = abs(time_s)
+    min2s = 60
+    hr2s = min2s * 60
+    day2s = hr2s * 24
+    mon2s = day2s * 30.42
+    yr2s = day2s * 365
+
+    years = np.floor(time_s / yr2s)
+    time_s = time_s - years * yr2s
+    months = np.floor(time_s / mon2s)
+    time_s = time_s - months * mon2s
+    days = np.floor(time_s / day2s)
+    time_s = time_s - days * day2s
+    hrs = np.floor(time_s / hr2s)
+    time_s = time_s - hrs * hr2s
+    mins = np.floor(time_s / min2s)
+    time_s = time_s - mins * min2s
+
+    #    time_str = "%01d Y %02d M %02d d %02d:%02d:%02d" % (years, \
+    #        months,days,hrs,mins,time_s)
+    if years >= 1:
+        time_str = "%01dY %02dM %02dd %02d:%02d:%02d" % (years,
+                                                         months, days, hrs, mins, time_s)
+    elif months >= 1:
+        time_str = "%02dM %02dd %02d:%02d:%02d" % (months, days, hrs, mins, time_s)
+    elif days >= 1:
+        time_str = "%02dd %02d:%02d:%02d" % (days, hrs, mins, time_s)
+    elif hrs >= 1:
+        time_str = "%02d:%02d:%02d" % (hrs, mins, time_s)
+    elif mins >= 1:
+        time_str = "%02d:%02d" % (mins, time_s)
+    else:
+        time_str = "%02d" % time_s
+    return time_str
+
+
+class BaseClass(object):
+    def __getitem__(self, key):
+        return getattr(self, key)
+    
+    def __setitem__(self, key, val):
+        setattr(self, key, val)
+    
+    def update(self, *args, **kwargs):
+        for k, v in dict(args).items():
+            if k in self.__dict__.keys():
+                self[k] = v
+        for k, v in kwargs.items():
+            (kwargs.pop(k) for k in kwargs.keys() if k not in self.__dict__.keys())
+            self[k] = v
+        return self
+    
+    def copy(self, **kwargs):
+        """Return a new instance copy of obj"""
+        (kwargs.pop(k) for k in kwargs.keys() if k not in self.__dict__.keys())
+        kwargs = {**self.__dict__, **kwargs}
+        return self.__class__(**kwargs)
+    
+    def inputs(self):
+        return list(self.__dict__.keys())
+    
+    def sanitize(self, raw, key_names=None, create_instance=False, **init_kwargs):
+        """
+        dicta would be the old kwargs (key: value)
+        dictb would be the renaming dict (old K: new K)
+        dictc would be the cls input args
+        """
+        if isinstance(key_names, (list, tuple)):
+            try:
+                key_names = {k: v for k, v in key_names}
+            except ValueError:
+                pass
+        if isinstance(key_names, dict):
+            raw = {key_names.get(k, k): v for k, v in raw.items()}
+        
+        kwargs = {k: raw.get(k, v) for k, v in self.__dict__.items()}
+        if create_instance:
+            return self.__class__(**init_kwargs, **kwargs)
+        return kwargs
+
+
+class DictMixin(Mapping, BaseClass):
+    def __iter__(self):
+        return (f.name for f in fields(self))
+
+    def __getitem__(self, key):
+        if not isinstance(key, str):
+            return [self[k] for k in key]
+        field = getattr(self, _FIELDS)[key]
+        if field._field_type is not _FIELD:
+            raise KeyError(f"'{key}' is not a dataclass field.")
+        return getattr(self, field.name)
+    
+    def __setitem__(self, key, val):
+        setattr(self, key, val)
+    
+    def __len__(self):
+        return len(fields(self))
+
+            
 # %% Dict operations
 def dict_key_sep(data, sep="/"):
     if not isinstance(data, dict):
@@ -757,6 +946,32 @@ def dict_df(data, single=True):
 
 
 # %% Fitting functions
+def ode_bounds(f=None, x=None, ind=0, dep=0, deg=0, **kwargs):
+    if f is None:
+        f = sp.symbols("f", cls=sp.Function)
+    if x is None:
+        x = sp.Symbol("x", real=True)
+    bnds = kwargs.get("bnds", kwargs.get("bounds"))
+    if bnds is None:
+        if deg >= 1:
+            return {f(x).diff(*[x]*int(deg)).subs(x, ind): dep}
+        return {f(ind): dep}
+    
+    if isinstance(bnds, dict) and all(isinstance(m, sp.Basic) for m in bnds.keys()):
+        return bnds
+    elif isinstance(bnds, (tuple, list)):
+        if all(isinstance(n, (int, float, np.number)) for n in bnds):
+            return ode_bounds(f, x, *bnds[:3])
+        if all(isinstance(n, (tuple, list, dict, np.ndarray)) for n in bnds):
+            res = {}
+            for bnd in bnds:
+                if isinstance(bnd, dict):
+                    res = {**res, **ode_bounds(f, x, **bnd)}
+                else:
+                    res = {**res, **ode_bounds(f, x, *bnd[:3])}
+            return res
+    return
+
 def gen_mask(self, mask, arr):
     if isinstance(mask, (list, np.ndarray)) and len(mask) != arr:
         mask = None

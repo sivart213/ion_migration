@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-Created on Wed Sep 21 16:54:59 2022
+Created on Wed Sep 21 16:54:59 2022.
 
 @author: j2cle
 """
-from .general import (
+
+from .equations.general import (
     arc,
     arccosd,
     arcsind,
@@ -20,11 +21,14 @@ from .general import (
     FtoC,
     FtoK,
     FtoR,
+    integral,
     inv_sum_invs,
     KtoC,
     KtoF,
     KtoR,
     line,
+    ode,
+    piecewise,
     polynomial,
     RtoC,
     RtoF,
@@ -36,7 +40,7 @@ from .general import (
     tand,
 )
 
-from .physics import (
+from .equations.physics import (
     bandgap_paessler,
     bandgap_schenk,
     bjerrum_length,
@@ -53,7 +57,7 @@ from .physics import (
     lifetime_eff,
     lifetime_minority,
     lifetime_SRH,
-    mobility_diffusion,
+    mobility_einstein,
     mobility_generic,
     mobility_klassen,
     mobility_masetti,
@@ -63,6 +67,7 @@ from .physics import (
     ni_eff,
     ni_Si,
     ohms_law,
+    poisson_rhs,
     probability_bose_einstein,
     probability_fermi_dirac,
     probability_maxwell_boltzmann,
@@ -82,7 +87,7 @@ from .physics import (
     voltage_divider,
 )
 
-from .solar import (
+from .equations.solar import (
     base_resistance,
     busbar_resistance,
     cell_params,
@@ -127,6 +132,74 @@ from .solar import (
     Voc,
 )
 
+from .functions.data_treatment import (
+    all_symbols,
+    BaseClass,
+    Complexer,
+    convert_prefix,
+    convert_temp,
+    convert_val,
+    cost_base10,
+    cost_basic,
+    cost_log,
+    cost_sqr,
+    create_function,
+    curve_fit_wrap,
+    dict_df,
+    dict_flat,
+    dict_key_sep,
+    dict_search,
+    DictMixin,
+    extract_arguments,
+    extract_variable,
+    find_nearest,
+    format_time_str,
+    function_to_expr,
+    gen_bnds,
+    gen_mask,
+    get_const,
+    has_arrays,
+    has_symbols,
+    has_units,
+    insert_attr_row,
+    myround,
+    nprint,
+    ode_bounds,
+    parse_constant,
+    parse_unit,
+    pick_math_module,
+    precise_round,
+    print_to_txt,
+    sample_array,
+    sci_note,
+    sig_figs_ceil,
+    sig_figs_round,
+    solve_for_variable,
+)
+
+from .functions.plotters import (
+    bode,
+    bode2,
+    lineplot_slider,
+    map_plt,
+    nyquist,
+    nyquist2,
+    scatter,
+)
+
+from .functions.system_utilities import (
+    f_find,
+    get_config,
+    load,
+    load_hdf,
+    p_find,
+    pathify,
+    pathlib_mk,
+    PickleJar,
+    save,
+    slugify,
+)
+
 
 __all__ = [
     "arc",
@@ -144,11 +217,14 @@ __all__ = [
     "FtoC",
     "FtoK",
     "FtoR",
+    "integral",
     "inv_sum_invs",
     "KtoC",
     "KtoF",
     "KtoR",
     "line",
+    "ode",
+    "piecewise",
     "polynomial",
     "RtoC",
     "RtoF",
@@ -158,6 +234,7 @@ __all__ = [
     "sphere_vol",
     "Statistics",
     "tand",
+
     "bandgap_paessler",
     "bandgap_schenk",
     "bjerrum_length",
@@ -174,7 +251,7 @@ __all__ = [
     "lifetime_eff",
     "lifetime_minority",
     "lifetime_SRH",
-    "mobility_diffusion",
+    "mobility_einstein",
     "mobility_generic",
     "mobility_klassen",
     "mobility_masetti",
@@ -184,6 +261,7 @@ __all__ = [
     "ni_eff",
     "ni_Si",
     "ohms_law",
+    "poisson_rhs",
     "probability_bose_einstein",
     "probability_fermi_dirac",
     "probability_maxwell_boltzmann",
@@ -201,6 +279,7 @@ __all__ = [
     "U_surface",
     "v_thermal",
     "voltage_divider",
+
     "base_resistance",
     "busbar_resistance",
     "cell_params",
@@ -243,4 +322,67 @@ __all__ = [
     "V_cell",
     "V_Rseries",
     "Voc",
+
+    "all_symbols",
+    "BaseClass",
+    "Complexer",
+    "convert_prefix",
+    "convert_temp",
+    "convert_val",
+    "cost_base10",
+    "cost_basic",
+    "cost_log",
+    "cost_sqr",
+    "create_function",
+    "curve_fit_wrap",
+    "dict_df",
+    "dict_flat",
+    "dict_key_sep",
+    "dict_search",
+    "DictMixin",
+    "extract_arguments",
+    "extract_variable",
+    "find_nearest",
+    "format_time_str",
+    "function_to_expr",
+    "gen_bnds",
+    "gen_mask",
+    "get_const",
+    "has_arrays",
+    "has_symbols",
+    "has_units",
+    "insert_attr_row",
+    "myround",
+    "nprint",
+    "ode_bounds",
+    "parse_constant",
+    "parse_unit",
+    "pick_math_module",
+    "precise_round",
+    "print_to_txt",
+    "sample_array",
+    "sci_note",
+    "sig_figs_ceil",
+    "sig_figs_round",
+    "solve_for_variable",
+
+    "bode",
+    "bode2",
+    "lineplot_slider",
+    "map_plt",
+    "nyquist",
+    "nyquist2",
+    "scatter",
+
+    "f_find",
+    "get_config",
+    "load",
+    "load_hdf",
+    "p_find",
+    "pathify",
+    "pathlib_mk",
+    "PickleJar",
+    "save",
+    "slugify",
+
 ]

@@ -8,9 +8,11 @@ General function file
 """
 import re
 import os
+import sys
 import h5py
 import dill
 import difflib
+import psutil
 import numpy as np
 import pandas as pd
 import unicodedata
@@ -139,6 +141,28 @@ def pathify(*dir_in, target=None):
 
 
 def p_find(*dir_in, as_list=False, **kwargs):
+    """
+    Find file path as quickly as possible.
+
+    Currently creates a Path obj from the dir_in list and compares it to the base
+
+    base options, cwd, home, sys.argv (originating file)
+
+    relative -> NameError
+    Parameters
+    ----------
+    dir_in : str(s), Path
+        tuple of strings
+    as_list : bool, optional
+        Iterate p_find for each dir in returning a list of paths.
+    kwargs :
+
+
+    Returns
+    -------
+    dir_path : Path
+        Return a windows or posix path object.
+    """
     if len(dir_in) == 1 and isinstance(dir_in[0], (list, np.ndarray)):
         dir_in = list(dir_in[0])
 
@@ -151,49 +175,125 @@ def p_find(*dir_in, as_list=False, **kwargs):
     if as_list:
         return [p_find(d, **kwargs) for d in dir_in]
 
+    # Drive list
+    drives = [Path(dp.device) for dp in psutil.disk_partitions() if dp.fstype.lower() in ['ntfs', 'fuseblk', 'ext4']]
+
+    def chng_dr(dr, pth):
+        return dr/Path(*pth.parts[1:])
+
     base_path = kwargs.get("base", Path.home() / "Documents")
     if isinstance(base_path, str) and base_path in ["cwd", "home"]:
         base_path = getattr(Path, base_path)()
     if base_path is None:
-        return Path(pathify(*dir_in, target=kwargs.get("target", None)))
+        # return Path(pathify(*dir_in, target=kwargs.get("target", None)))
+        base_path = Path.home() / "Documents"
 
-    if not base_path.exists() and Path("D:\\", *base_path.parts[1:]).exists():
-        base_path = Path("D:\\", *base_path.parts[1:])
+    if not base_path.exists():
+        paths = [chng_dr(d, base_path) for d in drives if chng_dr(d, base_path).exists()]
+        if len(paths) == 1:
+            base_path = paths[0]
+        elif len(paths) > 1:
+            if any([Path.cwd().anchor == p.anchor for p in paths]):
+                paths = [p for p in paths if Path.cwd().anchor == p.anchor]
+            paths.sort(key=lambda p: len(p.parts))
+            base_path = paths[0]
+        else:
+            base_path = Path.cwd()
 
+    # if there may be overlap, shrink base path until there isn't overlap
     if len(dir_in) >= 1 and Path(*dir_in).parts[0] in base_path.parts:
         for b in base_path.parents:
             if dir_in[0] not in b.parts:
                 base_path = b
                 break
 
+    # Combine the base path and begin checks
     dir_path = base_path / Path(*dir_in)
 
-    if not dir_path.exists() and Path("D:\\", *dir_path.parts[1:]).exists():
-        dir_path = Path("D:\\", *dir_path.parts[1:])
+    if  dir_path.exists():
+        return dir_path
+    else:
+        paths = [chng_dr(d, dir_path) for d in drives if chng_dr(d, dir_path).exists()]
+        for pth in paths:
+            if pth.exists():
+                return pth
 
-    if not dir_path.exists():
-        filesurvey = []
-        for row in os.walk(base_path):  # Walks through current path
-            for foldname in row[1]:  # row[2] is the file name
-                full_path: Path = Path(row[0]) / Path(
-                    foldname
-                )  # row[0] ist der Ordnerpfad
-                if (full_path / Path(*dir_in)).exists():
-                    filesurvey.append(full_path / Path(*dir_in))
+    # Basic attempts failed, try a comparison
+    caller = Path(sys.argv[0]).resolve()
 
-        dir_path = filesurvey[0]
-        for f in filesurvey:
-            dir_path = f if len(f.parts) < len(dir_path.parts) else dir_path
+    # paths = [f for d in drives for f in chng_dr(d, base_path).glob("**/"+str(Path(*dir_in)))]
+    # if len(paths) == 1:
+    #     return paths[0]
+    # elif len(paths) > 1:
+    #     if any([caller.is_relative_to(chng_dr(d, base_path)) for d in drives]):
+    #         for p in paths:
+    #             if p.is_relative_to(caller.parents[-len(base_path.parts)]):
+    #                 return p
+    #     if any([Path.cwd().is_relative_to(chng_dr(d, base_path)) for d in drives]):
+    #         for p in paths:
+    #             if p.is_relative_to(Path.cwd().parents[-len(base_path.parts)]):
+    #                 return p
+    #     if Path.home() != Path.cwd() and any([Path.home().is_relative_to(chng_dr(d, base_path)) for d in drives]):
+    #         for p in paths:
+    #             if p.is_relative_to(Path.cwd().parents[-len(base_path.parts)]):
+    #                 return p
 
-    if not dir_path.exists():
-        for p in dir_path.parents:
-            if len(p.parts) >= len(Path.home().parts):
-                print("pathified")
-                return Path(
-                    pathify(*Path(*dir_in).parts, target=kwargs.get("target", None))
-                )
-            elif p.exists():
-                break
+    # abandon base path and search in other ways
+    bases = [Path.cwd()]
+    if Path.cwd() != Path.home():
+        bases.append(Path.home())
+    bases = [chng_dr(d, p) for p in bases for d in drives if chng_dr(d, p).exists()]
+    bases = bases + list(caller.parents[:-len(Path.cwd().parts)])
+
+    bases.sort(reverse=True, key=lambda p: len(p.parts))
+
+    bases.insert(0, base_path) if base_path not in bases else None
+    [bases.insert(1, chng_dr(d, base_path)) for d in drives if chng_dr(d, base_path).exists() and chng_dr(d, base_path) not in bases]
+
+
+    for b in bases:
+        paths = list(b.glob("**/"+str(Path(*dir_in))))
+        if len(paths) == 1:
+            return paths[0]
+        elif len(paths) > 1:
+            return paths[0]
+            # if any([caller.is_relative_to(chng_dr(d, base_path)) for d in drives]):
+            #     for p in paths:
+            #         if p.is_relative_to(caller.parents[-len(base_path.parts)]):
+            #             return p
+            # if any([Path.cwd().is_relative_to(chng_dr(d, base_path)) for d in drives]):
+            #     for p in paths:
+            #         if p.is_relative_to(Path.cwd().parents[-len(base_path.parts)]):
+            #             return p
+            # if Path.home() != Path.cwd() and any([Path.home().is_relative_to(chng_dr(d, base_path)) for d in drives]):
+            #     for p in paths:
+            #         if p.is_relative_to(Path.cwd().parents[-len(base_path.parts)]):
+            #             return p
+
+
+    # if not dir_path.exists():
+    #     filesurvey = []
+    #     for row in os.walk(base_path):  # Walks through current path
+    #         for foldname in row[1]:  # row[2] is the file name
+    #             full_path: Path = Path(row[0]) / Path(
+    #                 foldname
+    #             )  # row[0] ist der Ordnerpfad
+    #             if (full_path / Path(*dir_in)).exists():
+    #                 filesurvey.append(full_path / Path(*dir_in))
+
+    #     dir_path = filesurvey[0]
+    #     for f in filesurvey:
+    #         dir_path = f if len(f.parts) < len(dir_path.parts) else dir_path
+
+    # if not dir_path.exists():
+    #     for p in dir_path.parents:
+    #         if len(p.parts) >= len(Path.home().parts):
+    #             print("pathified")
+    #             return Path(
+    #                 pathify(*Path(*dir_in).parts, target=kwargs.get("target", None))
+    #             )
+    #         elif p.exists():
+    #             break
 
     return dir_path
 
@@ -280,7 +380,7 @@ def slugify(value, allow_unicode=False, sep="-"):
     return re.sub(r"[-\s]+", sep, value).strip("-_")
 
 
-def save(data, path=None, name=None, ftype="xls"):
+def save(data, path=None, name=None, ftype="xls", attrs=None, **kwargs):
     """Save data into excel file."""
     if isinstance(path, Path):
         path = str(path)
@@ -298,23 +398,29 @@ def save(data, path=None, name=None, ftype="xls"):
             data = {x: data[x] for x in range(len(data))}
         else:
             data = pd.DataFrame(data)
-
+    
+    for k, df in data.items():
+        if attrs is not None and k in attrs.index:
+            comm = originstr(attrs.loc[k, :], **kwargs)
+            df_tmp=pd.DataFrame([[comm]*df.shape[1]], index=["Comments"], columns=df.columns)
+            data[k] = pd.concat([df_tmp, df])
+    
     if isinstance(data, (dict)):
         if not isinstance(data[list(data.keys())[0]], (pd.DataFrame, pd.Series)):
             data = pd.DataFrame(data)
 
     if isinstance(data, (pd.DataFrame, pd.Series)) and "xls" in ftype.lower():
-        data.to_excel(os.sep.join((path, f"{slugify(name)}.xlsx")), merge_cells=False)
+        data.to_excel(os.sep.join((path, f"{slugify(name)}.xlsx")), merge_cells=kwargs.pop("merge_cells", False), **kwargs)
     elif isinstance(data, (dict)) and "xls" in ftype.lower():
         with pd.ExcelWriter(os.sep.join((path, f"{slugify(name)}.xlsx"))) as writer:
             for key, df in data.items():
-                df.to_excel(writer, sheet_name=key, merge_cells=False)
+                df.to_excel(writer, sheet_name=key, merge_cells=kwargs.pop("merge_cells", False), **kwargs)
     elif isinstance(data, (pd.DataFrame, pd.Series)):
-        data.to_csv(os.sep.join((path, f"{slugify(name)}.{ftype}")), index=False)
+        data.to_csv(os.sep.join((path, f"{slugify(name)}.{ftype}")), index=kwargs.pop("index", False), **kwargs)
     elif isinstance(data, (dict)):
         for key, df in data.items():
             df.to_csv(
-                os.sep.join((path, f"{slugify(name)}_{key}.{ftype}")), index=False
+                os.sep.join((path, f"{slugify(name)}_{key}.{ftype}")), index=kwargs.pop("index", False), **kwargs
             )
 
 

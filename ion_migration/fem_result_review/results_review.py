@@ -17,11 +17,11 @@ from research_tools.functions import convert_val, f_find, sample_array
 def h5_bulk_in(
     file_pth, x_size=100, x_max=500, **kwargs
 ):  # t_step=1800, t_size=10, t_max=10800.0,
-    files = [f for f in f_find(file_pth, file_filter=".h5")]
+    files = [f for f in f_find(file_pth, re_filter=".h5")]
 
     file_dict = {"conc": {}, "volt": {}, "attrs": {}, "key_error": {}}
     for f_path in files:
-        file = load(f_path, target="", file_filter="h5")
+        file = load(f_path, target="", re_filter="h5")
         try:
             # parse desired datasets
             atr = file[1].get("EVA", file[1].get("L1", {}))
@@ -148,31 +148,41 @@ def compile_attrs(df):
     return df1
 
 
-def originprint(df):
+def originprint(df, name="mPNP"):
     if isinstance(df, pd.DataFrame):
         for ind in df.index:
             print(f"Sheet {ind}")
-            originprint(df.loc[ind, :])
+            originprint(df.loc[ind, :], name)
             print("")
         return
     df = df.dropna()
     print(
-        "mPNP\n{0:d} h,\n{1:d} \\+(o)C,\n{2:.1f} kV,\nr{3},".format(
+        "{0}\n{1:d} h,\n{2:d} \\+(o)C,\n{3:.1f} kV,\nr{4},".format(
+            str(name),
             int(df.get("time", 0)),
             int(df.get("T", 0)),
             float(df.get("V", 0) * 1e-3),
             df.name,
         )
     )
-
-    print(
-        "e\\-(r)={0:.2f},\nz={1:.1f},\n\\g(l)\\-(d)={2:g}nm,\nD={3:.2E},".format(
-            float(df.get("er", 0)),
-            float(df.get("z", 1)),
-            float(df.get("screen", 0)),
-            float(df.get("D", 0)),
+    if isinstance(df.get("screen", 0), (int, float, np.float64)):
+        print(
+            "e\\-(r)={0:.2f},\nz={1:.1f},\n\\g(l)\\-(d)={2:g}nm,\nD={3:.2E},".format(
+                float(df.get("er", 0)),
+                float(df.get("z", 1)),
+                float(df.get("screen", 0)),
+                float(df.get("D", 0)),
+            )
         )
-    )
+    else:
+        print(
+            "e\\-(r)={0:.2f},\nz={1:.1f},\n\\g(l)\\-(d)={2},\nD={3:.2E},".format(
+                float(df.get("er", 0)),
+                float(df.get("z", 1)),
+                df.get("screen", 0),
+                float(df.get("D", 0)),
+            )
+        )
 
     if isinstance(df.get("in_flux", None), (list, tuple, np.ndarray)):
         print(
@@ -192,40 +202,130 @@ def originprint(df):
     return
 
 
+def originstr(df, name="mPNP", **kwargs):
+    if isinstance(df, pd.DataFrame):
+        return [originstr(df.loc[ind, :], name, **kwargs) for ind in df.index]
+    df = df.dropna()
+
+    if callable(name):
+        if "var" in kwargs.keys():
+            kwargs["var"] = vars()
+        name = name(**kwargs)
+    res = "{0}\nT={1:d} \\+(o)C\n".format(   
+            str(name),
+            int(df.get("T", 0)),
+        )
+    if df.get("V", 0) < 1e3:
+        res = res + "V={0:.0f} V\n".format(float(df.get("V", 0)))
+    else:
+        res = res + "V={0:.1f} kV\n".format(float(df.get("V", 0) * 1e-3))
+    res = res + (
+        "D={0:.2E} cm\\+(2)/s\ne\\-(r)={1:.2f}\nz={2:.1f}\n".format(
+            float(df.get("D", 0)),
+            float(df.get("er", 0)),
+            float(df.get("z", 1)),
+        )
+    )
+    if isinstance(df.get("screen", 0), (int, float, np.float64)):
+        res = res + (
+            "\\g(k)\\+(-1)={0:g} nm\n".format(
+                float(df.get("screen", 0)),
+            )
+        )
+    else:
+        res = res + (
+            "\\g(k)\\+(-1)={0}\n".format(
+                df.get("screen", 0),
+            )
+        )
+
+    if isinstance(df.get("in_flux", None), (list, tuple, np.ndarray)):
+        res = res + (
+            "C\\-(s)={0:.2E}\nC\\=(Na,eq)={1:.2E}\nh={2:.1E}\nm={3:.0E}\n".format(
+                float(df.get("C_0", df.get("S_0", 1))),
+                float(df.get("C_0", df.get("S_0", 1)) * df["in_flux"][1]),
+                float(df["in_flux"][0]),
+                float(df["in_flux"][1]),
+            )
+        )
+    else:
+        res = res + (
+            "C\\-(s)={0:.2E}\nk={1:.1E}\n".format(
+                float(df.get("S_0", df.get("C_0", 1))),
+                float(df.get("k", 0)),
+            )
+        )
+    return res
+
+def save_w_comments(data, pth, fname, attrs, **kwargs):
+    data=data.copy()
+    for k, df in data.items():
+        if attrs is not None and k in attrs.index:
+            comm = originstr(attrs.loc[k, :], **kwargs)
+            df_tmp=pd.DataFrame([[comm]*df.shape[1]], index=["Comments"], columns=df.columns)
+            data[k] = pd.concat([df_tmp, df])
+    save(data, pth, fname)
+    # return data
+
 # %% Operations
 if __name__ == "__main__":
-    from research_tools.functions import save, lineplot_slider, p_find, load
-
-    folder = "m80r7"  #  "m60r8", "m80r4", "mNoEr4"
+    from pathlib import Path
+    from research_tools.functions import save, lineplot_slider, p_find, load, f_find
 
     data_pth = p_find(
         "Dropbox (ASU)",
         "Work Docs",
         "Data",
+        "Raw",
+        "Simulations",
+        "PNP",
+        base="home",
+    )
+
+    save_pth = Path(
+        *data_pth.parts[:data_pth.parts.index("Raw")],
         "Analysis",
         "Simulations",
         "PNP",
         "EVA",
-        base="home",
-    )
-
-    if 1:
-        eva_dict = h5_bulk_in(
-            data_pth / folder,
-            x_size=500,
-            x_max=5,
-            # t_step=convert_val(6, "h", "s"),
-            t_size=6,
-            # t_max=convert_val(1, "day", "s"),
         )
 
-        eva_attr = compile_attrs(eva_dict["attrs"])
-        save(eva_dict["conc"], data_pth / folder, f"{folder}_conc")
-        save(eva_dict["volt"], data_pth / folder, f"{folder}_volt")
+    # folders = [f.stem for f in data_pth.iterdir() if f.is_dir() and f.stem.startswith("mPNP") and len(f.stem) > 7]
+    # folders = ["mPNP_NoE_r1","mPNP_NoE_r2","mPNP_NoE_r3","mPNP_NoE_r4", "mPNP_NoE_r5"]
+    # title = ["mP\\-(1)", "mP\\=(1,\\+(\\g(k)\\+(-1)=0.5))", "mP\\=(1,\\+(\\g(k)\\+(-1)=0.2))", "mP\\=(1,\\+(\\g(k)\\+(-1)=0.2))", "mP\\=(1,\\+(\\g(k)\\+(-1)=0.33))"]
+    folders = ["mPNP_NP_r1", "mPNP_NP_r2"]
+    title = ["mP\\-(1) + NP", "mP\\-(1) & NP"]
+    
+    for n in range(len(folders)):
+        folder = folders[n]
+        folder_out = folder.split("_")[0][0]+"".join(folder.split("_")[1:])  #  "m60r8", "m80r4", "mNoEr4"
 
-    if 1:
-        print(folder)
-        originprint(eva_attr)
+        if 1:
+            eva_dict = h5_bulk_in(
+                data_pth / folder,
+                x_size=500,
+                x_max=5,
+                # t_step=convert_val(6, "h", "s"),
+                t_size=5,
+                # t_max=convert_val(1, "day", "s"),
+            )
+
+            eva_attr = compile_attrs(eva_dict["attrs"])
+            attr_kws = dict(
+                attrs=eva_attr,
+                name=lambda var, arg, str1: str1+"\nr" + str(var[arg].name).split("_")[-1],
+                var="",
+                arg="df",
+                str1=title[n],
+                )
+            save_w_comments(eva_dict["conc"], save_pth / "mPNP_results", f"{folder_out}_conc", **attr_kws)
+            # save_w_comments(eva_dict["volt"], save_pth / "mPNP_results", f"{folder_out}_volt", **attr_kws)
+            # save(eva_dict["conc"], save_pth / "mPNP_results", f"{folder_out}_conc")
+            # save(eva_dict["volt"], save_pth / "mPNP_results", f"{folder_out}_volt")
+
+    # if 1:
+    #     print(folder)
+    #     originprint(eva_attr, name="mP2")
 
     if 0:
         res = eva_dict

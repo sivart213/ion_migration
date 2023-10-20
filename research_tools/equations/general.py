@@ -7,7 +7,7 @@ Created on Wed Apr 11 17:05:01 2018.
 General function file
 """
 
-
+import re
 import numpy as np
 import sympy as sp
 import scipy.special as scs
@@ -15,7 +15,7 @@ import scipy.special as scs
 from sklearn import metrics
 from scipy import stats, optimize, linalg
 
-from research_tools.functions import get_const, has_units
+from research_tools.functions import get_const, has_units, extract_variable, ode_bounds
 
 
 # %% General
@@ -131,6 +131,110 @@ def polynomial(*coeff, x=None):
     elif hasattr(res, "expand"):
         return res.expand()
     return res
+
+def piecewise(*args, var="x", **kwargs):
+    args=tuple(args)
+    if not isinstance(args[0], (list, tuple)):
+        args = tuple([args])
+    elif isinstance(args[0][0], (list, tuple)):
+        args = tuple(args[0])
+
+    if len(args) == 1 and len(args[0]) == 1:
+        return args[0][0]
+
+    if not isinstance(args[-1], (tuple, list)):
+        args = args[:-1] + tuple([(args[-1], True)])
+    elif len(args[-1]) == 1:
+        # args[-1] = (args[-1][0], True)
+        args = args[:-1] + tuple([(args[-1][0], True)])
+    elif not isinstance(args[-1][-1], bool):
+        args = args+tuple([(0, True)])
+
+    if isinstance(var, str):
+        var = sp.Symbol(var, real=True)
+    pairs = []
+    for a in args:
+        if len(a) > 2:
+            pairs.append((a[0], sp.Interval(*a[1:]).contains(var)))
+        elif isinstance(a[1], (tuple, list)):
+            pairs.append((a[0], sp.Interval(*a[1]).contains(var)))
+        elif isinstance(a[1], bool):
+            pairs.append(a)
+        elif not isinstance(a[1], str):
+            pairs.append((a[0], var < a[1]))
+        else:
+            a1 = re.search("[<>=]+", a[1])
+            var1 = re.search(str(var), a[1])
+            kvars = kwargs.get("kwargs", kwargs)
+            kvars[str(var)] = var
+            if not var1:
+                if not a1:
+                    expr = sp.parse_expr(str(var)+"<"+a[1])
+                elif a1.start() == 0:
+                    expr = sp.parse_expr(str(var)+a[1])
+                elif a1.end() == len(a[1]):
+                    expr = sp.parse_expr(a[1]+str(var))
+                else:
+                    expr = sp.parse_expr(str(var)+"*"+a[1])
+            else:
+                expr = sp.parse_expr(a[1])
+            pairs.append((a[0], expr.subs(kvars)))
+
+    return sp.Piecewise(*[(a[0], a[1]) for a in pairs], evaluate=False)
+
+def ode(f=None, x=None, deg=2, expr=0, **kwargs):
+    if isinstance(expr, sp.Piecewise):
+        expr = sp.piecewise_fold(expr)
+
+    if f is None:
+        f = sp.symbols("f", cls=sp.Function)
+    if x is None:
+        x = extract_variable(expr, "x")
+        x = x[0] if len(x) >= 1 else sp.Symbol("x", real=True)
+    
+    res = sp.Eq(f(x).diff(*[x]*deg), expr)
+    if kwargs.get("solve", False):
+        bnds = kwargs.get("bnds", kwargs.get("bounds"))
+        if bnds is None:
+            res = sp.dsolve(res, f(x), simplify=False)
+        else:
+            res = sp.dsolve(res, f(x), simplify=False, ics=ode_bounds(f, x, bnds=bnds))
+        if not kwargs.get("full", False):
+            res = res.rhs
+        if kwargs.get("simplify", True):
+            res = res.simplify()
+    if kwargs.get("all", False):
+        return res, f, x
+    return res
+
+
+
+def integral(x=None, bound=None, deg=2, expr=0, **kwargs):
+    if isinstance(expr, sp.Piecewise):
+        expr = sp.piecewise_fold(expr)
+
+    if x is None:
+        x = extract_variable(expr, "x")
+        x = x[0] if len(x) >= 1 else sp.Symbol("x", real=True)
+    
+    res = expr
+    for n in range(deg):
+        if isinstance(bound, (tuple, list, np.ndarray)):
+            if isinstance(bound[n], (tuple, list, np.ndarray)):
+                res = sp.integrate(res, (x, bound[n][0], bound[n][1]))
+            else:
+                res = sp.integrate(res, (x, bound[0], bound[1]))
+        else:
+            if kwargs.get("constants", kwargs.get("const", False)):
+                res = sp.integrate(res, (x)) + sp.Symbol(f"C_{n}", real=True)
+            else:
+                res = sp.integrate(res, (x))
+    if kwargs.get("simplify", True):
+        res = res.simplify()
+    if kwargs.get("all", False):
+        return res, x
+    return res
+
 
 
 # %% Geometric
