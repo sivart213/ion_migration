@@ -58,17 +58,27 @@ def getLogger(out_path, filetag, **kwargs):
 
     return pnp_logger
 
+ratio = 0
+c_init = 1e14
+cv_init = 2.24e+22
+
 base = dict(
+    # tempC = 60,
     tempC = 80,
     voltage = 1500,
     thick = convert_val(450, "um", "cm"),  # 450 um
+    # time_s = convert_val(8, "day", "s"),
     time_s = convert_val(1, "day", "s"),
-    diffusivity =  4e-16,  # 1.5e-15 # nominal=4e-16
+    diffusivity = 4e-16,  # 1.5e-15 # nominal=4e-16
+    diffusivity2 = 4e-16,  # 1.5e-15 # nominal=4e-16
     er = 2.95,  # 2.65, updated
     material = "EVA",
-    csurf = 1e12, # Surface Conc atoms/cm2 csurf_vol * thick_na.cm # Surface Conc atoms/cm2
+    csurf = max(1e-20, c_init * (1.0 - ratio)), # Surface Conc atoms/cm2 csurf_vol * thick_na.cm # Surface Conc atoms/cm2
+    # c2surf = 1e-20,
     # cbulk = 1e-20,
     )
+
+base["c2surf"] = max(1e-20, c_init - base["csurf"])
 
 mesh = dict(
     voltage_pin=True,
@@ -77,64 +87,87 @@ mesh = dict(
     thick_mesh_ref = convert_val(25, "um", "cm"),  # 5 um
     dx_max = convert_val(10, "nm", "cm"),  # 10 nm
     dx_min = convert_val(0.01, "nm", "cm"),  # 0.01 nm
+    # dt_max = convert_val(6, "h", "s"),  # 10 min
     dt_max = convert_val(3, "h", "s"),  # 10 min
     # dt_base = 3,
     )
 
+
 other = dict(
     valence = 1,
-    csurf_vol = 2.24e+22,  # atoms/cm3 in Na layer Na in pure NaCl = 2.2422244077479557e+22
-    # screen = 0.33,
+    csurf_vol = max(1e-20, cv_init * (1.0 - ratio)),  # atoms/cm3 in Na layer Na in pure NaCl = 2.2422244077479557e+22
+    # c2surf_vol = cv_init,
+    screen = "calc",
     )
 
+other["c2surf_vol"] = max(1e-20, cv_init - other["csurf_vol"])
 
+eq_c = {"c2surf": c_init, "c2surf_vol": cv_init, "rate2": 1e-12, "diffusivity2": 6e-15}
 # {"diffusivity": 0.75e-15, "valence": 0.5, "screen": 0.33, "rate": 1e-8, "m_eq": 2.24e20}
 runs = {
+        # "EVA_mPNPNP_00": {**eq_c, **{"ratio": 1, "m_eq2": 1.12e19}},
+        
+        # "EVA_mPNPNP_01": {"rate2": 1e-12, "diffusivity2": 6e-15},
+        # "EVA_mPNPNP_02": {**eq_c, **{"ratio": 0.5}},
+        # "EVA_mPNPNP_03": {**eq_c, **{"ratio": 1}},
+        
+        # "EVA_mPNPNP_04": {**eq_c, **{"ratio": 0.01}},
+        # "EVA_mPNPNP_05": {**eq_c, **{"ratio": 0.05}},
+        # "EVA_mPNPNP_06": {**eq_c, **{"ratio": 0.1}},  
 
-        # "EVA_PNPCL_01": {"screen": None},
-        # "EVA_PNPCL_02": {"screen": None, "valence2": 1},
-        # "EVA_PNPCL_03": {"screen": None, "valence2": -1},
-        # "EVA_PNPCL_04": {"screen": None, "valence2": 1, "valence3": -1},
-        # "EVA_PNPCL_05": {"screen": None, "valence2": -1, "valence3": 1},
+        # "EVA_mPNPNP_07": {**eq_c, **{"m_eq2": 4.48e18}},
+        # "EVA_mPNPNP_08": {**eq_c, **{"m_eq2": 2.24e18}},
+        # "EVA_mPNPNP_09": {**eq_c, **{"m_eq2": 1.12e18}},
         
-        "EVA_PNPCL_06": {"screen": "calc"},
-        "EVA_PNPCL_07": {"screen": "calc", "valence2": 1},
-        "EVA_PNPCL_08": {"screen": "calc", "valence2": -1},
-        "EVA_PNPCL_09": {"screen": "calc", "valence2": 1, "valence3": -1},
-        "EVA_PNPCL_10": {"screen": "calc", "valence2": -1, "valence3": 1},
+        # "EVA_mPNPNP_10": {**eq_c, **{"ratio": 0.1, "rate2": 1e-8}},
+        # "EVA_mPNPNP_11": {**eq_c, **{"ratio": 0.1, "rate2": 1e-12}},
+        # "EVA_mPNPNP_12": {**eq_c, **{"ratio": 0.1, "rate2": 1e-16}},
         
-        "EVA_PNPCL_11": {"screen": "volt"},
-        "EVA_PNPCL_12": {"screen": "volt", "valence2": 1},
-        "EVA_PNPCL_13": {"screen": "volt", "valence2": -1},
-        "EVA_PNPCL_14": {"screen": "volt", "valence2": 1, "valence3": -1},
-        "EVA_PNPCL_15": {"screen": "volt", "valence2": -1, "valence3": 1},
+        # "EVA_mPNPNP_13": {**eq_c, **{"ratio": 0.1, "diffusivity2": 2e-15}},
+        # "EVA_mPNPNP_14": {**eq_c, **{"ratio": 0.1, "diffusivity2": 4e-15}},
+        # "EVA_mPNPNP_15": {**eq_c, **{"ratio": 0.1, "diffusivity2": 8e-15}},
+
+        # "EVA_mPNPNP_16": {**eq_c, **{"ratio": 0.1, "diffusivity2": 1e-14}},
+        # "EVA_mPNPNP_17": {**eq_c, **{"ratio": 0.1, "diffusivity2": 2e-14}},
+        "EVA_mPNPNP_18": {**eq_c, **{"ratio": 0.1, "diffusivity2": 3e-14}},         
         
-        # for 9
-        # "EVA_22": {"screen": 0.33, "rate": 5e-9},
-        # "EVA_23": {"screen": 0.33, "rate": 5e-11},
-        # "EVA_24": {"screen": 0.33, "rate": 5e-15},
         
-        # for 10
-        # "EVA_22": {"screen": "volt", "rate": 5e-9},
-        # "EVA_23": {"screen": "volt", "rate": 5e-11},
-        # "EVA_24": {"screen": "volt", "rate": 5e-15},
+        ### R1
         
-        # for 11
-        # "EVA_mPNP_23": {"screen": "calc", "rate": 5e-9},
-        # "EVA_mPNP_24": {"screen": "calc", "rate": 5e-11},
-        # "EVA_mPNP_25": {"screen": "calc", "rate": 5e-15},
+        # "EVA_mPNPNP_01": {},
+        # "EVA_mPNPNP_02": {"ratio": 0.5},
+        # "EVA_mPNPNP_03": {"ratio": 1},
         
-        # for 12
-        # "EVA_PNP_30": {"screen": None, "rate": 5e-9},
-        # "EVA_PNP_31": {"screen": None, "rate": 5e-11},
-        # "EVA_PNP_32": {"screen": None, "rate": 5e-15},
+        # "EVA_mPNPNP_04": {"ratio": 0.01},
+        # "EVA_mPNPNP_05": {"ratio": 0.05},
+        # "EVA_mPNPNP_06": {"ratio": 0.1},  
+
+        # "EVA_mPNPNP_07": {**eq_c, **{"m_eq2": 4.48e18}},
+        # "EVA_mPNPNP_08": {**eq_c, **{"m_eq2": 2.24e18}},
+        # "EVA_mPNPNP_09": {**eq_c, **{"m_eq2": 1.12e18}},
+        
+        # "EVA_mPNPNP_10": {**eq_c, **{"rate2": 1e-8}},
+        # "EVA_mPNPNP_11": {**eq_c, **{"rate2": 1e-12}},
+        # "EVA_mPNPNP_12": {**eq_c, **{"rate2": 1e-16}},
+        
+        # "EVA_mPNPNP_13": {**eq_c, **{"rate2": 1e-12, "diffusivity2": 1.2e-15}},
+        # "EVA_mPNPNP_14": {**eq_c, **{"rate2": 1e-12, "diffusivity2": 2e-15}},
+        # "EVA_mPNPNP_15": {**eq_c, **{"rate2": 1e-12, "diffusivity2": 4e-15}},        
+        
+        # "EVA_mPNPNP_16": {**eq_c, **{"rate2": 1e-12, "m_eq2": 4.48e18, "diffusivity2": 1.2e-15}},
+        # "EVA_mPNPNP_17": {**eq_c, **{"rate2": 1e-12, "m_eq2": 4.48e18, "diffusivity2": 2e-15}},
+        # "EVA_mPNPNP_18": {**eq_c, **{"rate2": 1e-12, "m_eq2": 4.48e18, "diffusivity2": 4e-15}},
+        
+        # "EVA_mPNPNP_19": {**eq_c, **{"rate2": 1e-12, "m_eq2": 4.48e18, "diffusivity2": 8e-15}},
+        # "EVA_mPNPNP_20": {**eq_c, **{"rate2": 1e-12, "m_eq2": 4.48e18, "diffusivity2": 1e-14}},
+        # "EVA_mPNPNP_21": {**eq_c, **{"rate2": 1e-12, "m_eq2": 4.48e18, "diffusivity2": 2e-14}}, 
         
         }
 
 
-rpath = p_find("Dropbox (ASU)","Work Docs","Data", "Raw", "Simulations", "PNP", "mPNPCL_80_r01", base="home") # "mPNP_80_r9"  "mPNP_80_r10"  "mPNP_80_r11"   "mPNP_80_r12"
+rpath = p_find("Dropbox (ASU)","Work Docs","Data", "Raw", "Simulations", "PNP", "mPNP_NP_r3", base="home")
 pathlib_mk(rpath)
-gnote = "Cl at x=0" #"compare calc mPNP and PNP"
+gnote = "mPNP" #"compare calc mPNP and PNP"
 
 for kw, var in runs.items():
     note = gnote + ", ".join([f"{k}={v}" for k, v in var.items()]) 
@@ -143,15 +176,42 @@ for kw, var in runs.items():
     h5FileName = str(rpath / Path(f"{file_tag}.h5"))
     myLogger = getLogger(str(rpath), file_tag, name='SL')
 
-    rate = var.pop("rate",  3e-14) #0.5e-12
-    m_eq = var.pop("m_eq",  4.48e19)/var.get("csurf_vol", other["csurf_vol"])
+    rate = var.pop("rate",  5e-13) #0.5e-12
+    rate2 = var.pop("rate2",  rate) #0.5e-12
+    
+    rm1_val = 4.48e19
+    rm2_val = 1e-20
+    
+    if "ratio" in var.keys():
+        ratio = var.pop("ratio")
+        var["csurf"] = max(1e-20, c_init * (1 - ratio))
+        var["c2surf"] = max(1e-20, c_init - var["csurf"])
+        
+        var["csurf_vol"] = max(1e-20, cv_init * (1 - ratio))
+        var["c2surf_vol"] = max(1e-20, cv_init - var["csurf_vol"])
+        
+        rm1_val = max(1e-20, var.get("m_eq",  4.48e19) * (1 - ratio))
+        rm2_val = max(1e-20, var.get("m_eq",  4.48e19) - rm1_val)
+        
+    if "mratio" in var.keys():
+        rm1_val = max(1e-20, var.get("m_eq",  4.48e19) * (1 - var.pop("mratio")))
+        rm2_val = max(1e-20, var.get("m_eq",  4.48e19) - rm1_val)
+        
+    m1_val = var.pop("m_eq",  rm1_val)
+    m2_val = var.pop("m_eq2",  rm2_val)
+    
+    m_eq = m1_val/var.get("csurf_vol", other["csurf_vol"])
+    m_eq2 = m2_val/var.get("c2surf_vol", other["c2surf_vol"])
 
 
     inputs = dict(
         note = note,
         in_flux = ("interf", [rate, m_eq]), #("box", 0) or  ("interf",[1,1]) ("surf", rate),
         # out_flux = ("closed", 0), # ("surf", rate), or ("box", 0) or ("interf",[1,1])
-
+        
+        in_flux2 = ("interf", [rate2, m_eq2]),
+        # out_flux2 = ("closed", 0),
+        
         max_calls = 1,
         max_iter = 1000,
 
@@ -226,7 +286,7 @@ for kw, var in runs.items():
 
     # %%
     
-    t_sim, x1i, c1i, p1i, c_max = pnpfs.single_layer(**inputs)
+    t_sim, x1i, c1i, p1i, c_max = pnpfs.double_ion(**inputs)
     print("")
 
     if 0:
