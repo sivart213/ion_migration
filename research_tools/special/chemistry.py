@@ -32,11 +32,13 @@ if __name__ == "__main__":
     # examples
     # x=g_to_atoms("Na")
     Na = pt.formula('Na[23]')
-    NaCl = pt.formula('NaCl')
+    Cl = pt.formula('Cl')
+    NaCl = pt.formula('NaCl@2.16')
+    BSoda = pt.formula('NaHCO3')
     H2O = pt.formula('H[2]O', natural_density=0.9957)
     EVA = pt.formula('28%wt C[12]4H[1]6O[16]2 //  C[12]2H[1]4', natural_density=0.92)
 
-    Na_mol_mass = g_to_atoms('Na[23]',1e16)["res"] / Na.density
+    Na_mol_mass = g_to_atoms('Na[23]', 1e19)["res"] / Na.density #  Na (g/cm3) / Na density
     H2O_mol_mass = g_to_atoms('H2O',grams=2e-3)["res"] / H2O.density
 
     Na_EVA_wt = Na.molecular_mass / EVA.molecular_mass
@@ -44,3 +46,6 @@ if __name__ == "__main__":
 
     Si = pt.formula('Si')
     P = pt.formula('P')
+    
+    Na_EVA_19 = pt.formula(".38mg Na[23]{+} // 1mL (28%wt C[12]4H[1]6O[16]2 //  C[12]2H[1]4)@0.92")
+    Na_EVA_16 = pt.formula("0.38ng Na[23]{+} // 1mL (28%wt C[12]4H[1]6O[16]2 //  C[12]2H[1]4)@0.92")
