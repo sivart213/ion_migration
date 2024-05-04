@@ -27,6 +27,7 @@ import scipy.constants as constants
 from scipy import integrate
 from scipy.stats import linregress
 from datetime import datetime as date
+import time
 
 # from utilities import get_filenames
 from research_tools.functions import f_find
@@ -85,7 +86,7 @@ def format_time_str(time_s: float):
         time_str = "%02d" % time_s
     return time_str
 
-def single_layer(
+def double_ion(
     tempC: float,
     voltage: float,
     thick: float,
@@ -136,7 +137,7 @@ def single_layer(
         my_logger.addHandler(fh)
         my_logger.addHandler(ch)
 
-        tsim, x1, ftrial_ti1[0], x2, c2, cmax = pnpfs.single_layer_constant_source_flux(
+        tsim, x1, c1_trial_ti1, x2, c2, cmax = pnpfs.double_ion_constant_source_flux(
             diffusivity=D1, thick=thickness_1,
             tempC=temp_c, voltage=voltage, time_s=csurf,
             rate=k, tpoints=t_steps, h5_storage=h5FileName, er=7.0
@@ -201,7 +202,7 @@ def single_layer(
         The time for each flatband voltage point in seconds.
     x1: np.ndarray
         The depth of the concentration profile in SiNx in um.
-    ftrial_ti1[0]: np.ndarray
+    c1_trial_ti1: np.ndarray
         The final concentration profile as a function of depth in SiNx in cm\ :sup:`-3`\.
     potential: np.ndarray
         The final potential profile as a function of depth in SiNx in V.
@@ -215,9 +216,18 @@ def single_layer(
     thick_mesh = kwargs.get("thick_mesh", thick)
     thick_mesh_ref = kwargs.get("thick_mesh_ref", thick_mesh * 0.1)
     thick_na = kwargs.get("thick_na", 0.0)
+    
     csurf_vol = kwargs.get("csurf_vol", csurf)
     in_flux = kwargs.get("in_flux", ("surface", 1e-4))
     out_flux = kwargs.get("out_flux", ("closed", 0))
+    
+    diffusivity2 = kwargs.get("diffusivity2", diffusivity)
+    c2surf = kwargs.get("c2surf", csurf)
+    c2bulk = kwargs.get("c2bulk", cbulk)
+    c2surf_vol = kwargs.get("c2surf_vol", csurf_vol)
+    in_flux2 = kwargs.get("in_flux2", in_flux)
+    out_flux2 = kwargs.get("out_flux2", out_flux)
+    
     dx_max = kwargs.get("dx_max", 1e-7)
     dx_min = kwargs.get("dx_min", dx_max * 0.01)
     dt_max = kwargs.get("dt_max", int(time_s / 500))
@@ -226,9 +236,6 @@ def single_layer(
     max_iter = kwargs.get("max_iter", 1000)
 
     valence = kwargs.get("valence", 1.0)
-    valence2 = kwargs.get("valence2", 0)
-    valence3 = kwargs.get("valence3", valence2)
-    
     h5fn = kwargs.get("h5_storage", None)
     debug = kwargs.get("debug", False)
     relax_param = kwargs.get("relax_param", 1.0)
@@ -236,7 +243,7 @@ def single_layer(
     func = kwargs.get("func", None)
     screen = kwargs.get("screen", None)
     
-
+    tm_start = time.time()
     
     # %% Base value calculations
     
@@ -249,13 +256,8 @@ def single_layer(
     qee = zq / epsilon # Vcm
     
     kbT = constants.Boltzmann * tempK  # CV
-    
-    if isinstance(diffusivity, (list, tuple)):
-        mob = zq * diffusivity[0] / kbT
-        diffusivity = sum(diffusivity)
-    else:
-        # The constant mobility z * q * D1 / (kb * T) :: (a.u. * C * cm2/s / (C*V/K * K)) -> cm2/(Vs)
-        mob = zq * diffusivity / kbT
+            
+    mob = zq * diffusivity / kbT
     
     if isinstance(screen, str):
         if "calc" in screen.lower() and "inter" in in_flux[0].lower():
@@ -280,6 +282,14 @@ def single_layer(
             (0, x > thick),
             evaluate=False,
         )
+        
+        conc2 = sp.Piecewise(
+            (0, x < 0),
+            (c2surf, x <= thick_na),  # CM3TOUM3
+            (c2bulk, x <= thick),  # CM3TOUM3
+            (0, x > thick),
+            evaluate=False,
+        )
 
         ion_dens = sp.Piecewise(
             (0, x < 0),
@@ -294,6 +304,14 @@ def single_layer(
             (0, x < 0),
             (csurf_vol, x <= thick_na),  # CM3TOUM3
             (cbulk, x <= thick),  # CM3TOUM3
+            (0, x > thick),
+            evaluate=False,
+        )
+        
+        conc2 = sp.Piecewise(
+            (0, x < 0),
+            (c2surf_vol, x <= thick_na),  # CM3TOUM3
+            (c2bulk, x <= thick),  # CM3TOUM3
             (0, x > thick),
             evaluate=False,
         )
@@ -334,29 +352,38 @@ def single_layer(
     
     dlf.set_log_level(50)
     logging.getLogger("FFC").setLevel(logging.WARNING)
-
+    
+    
     if debug:
+        
         fcallLogger.info("********* Global parameters *********")
         fcallLogger.info("Start: {}".format(date.now().strftime("%D_%H:%M:%S")))
         fcallLogger.info("-------------------------------------")
         fcallLogger.info("Time: {0}".format(format_time_str(time_s)))
         fcallLogger.info("Temperature: {0:.1f} °C".format(tempC))
-        if "inter" in out_flux[0].lower():
+        if "inter" in in_flux[0].lower():
             fcallLogger.info("Source concentration: {0:.4E} (Na atoms/cm^3)".format(csurf_vol))
+            fcallLogger.info("Equalibrium concentration: {0:.4E} (Na atoms/cm^3)".format(in_flux[1][1]*csurf_vol))
         else:
             fcallLogger.info("Source concentration: {0:.4E} (Na atoms/cm^2)".format(csurf))
+        if "inter" in in_flux2[0].lower():
+            fcallLogger.info("Source concentration: {0:.4E} (Na atoms/cm^3)".format(c2surf_vol))
+            fcallLogger.info("Equalibrium concentration: {0:.4E} (Na atoms/cm^3)".format(in_flux2[1][1]*c2surf_vol))
+        else:
+            fcallLogger.info("Source concentration: {0:.4E} (Na atoms/cm^2)".format(c2surf))
         fcallLogger.info("*************** {} ******************".format(material))
         fcallLogger.info("Material Thickness: {0:.3G} um".format(thick * 1e4))
         fcallLogger.info("Mesh Thickness: {0:.3G} um".format(thick_mesh * 1e4))
         fcallLogger.info("er: {0:.2f}".format(er))
         fcallLogger.info("Voltage: {0:.1f} V".format(voltage))
         fcallLogger.info("Electric Field: {0:.4E} MV/cm".format(voltage / thick * 1e-6))
-        fcallLogger.info("D: {0:.4E} cm^2/s".format(diffusivity))
+        fcallLogger.info("D1: {0:.4E} cm^2/s".format(diffusivity))
+        fcallLogger.info("D2: {0:.4E} cm^2/s".format(diffusivity2))
         fcallLogger.info("Ionic mobility: {0:.4E} um^2/ V*s".format(mob * 1e8))
 
     # %% make dt's
     dt = dt_max
-    num_t = 50
+    num_t = int(np.log10(dt) * 2 * dt_base)
     dtt = [dt_max / (dt_base * k) for k in range(1, num_t)]
     t1 = []
     for k in dtt:
@@ -383,7 +410,7 @@ def single_layer(
         def inside(self, x_, on_boundary):
             return near(x_[0], thick_mesh, 1e-12) and on_boundary
 
-    def get_solution_array(mesh, sol):
+    def get_solution_array1(mesh, sol):
         c_, phi = sol.split()
         xu = mesh.coordinates()
         cu = c_.compute_vertex_values(mesh)  # * 1e12
@@ -394,14 +421,25 @@ def single_layer(
         )
         xyz.sort(order="x")
         return xyz["x"], xyz["c"], xyz["phi"]
-
+    
+    def get_solution_array2(mesh, sol):
+        xu = mesh.coordinates()
+        cu = sol.compute_vertex_values(mesh)  # * 1e12
+        xyz = np.array(
+            [(xu[j], cu[j]) for j in range(len(xu))],
+            dtype=[("x", "d"), ("c", "d")],
+        )
+        xyz.sort(order="x")
+        return xyz["x"], xyz["c"]
+    
     top = Top()
     bottom = Bottom()
 
     # Create mesh and define function space
     xpoints = int(thick_mesh / dx_max)
     mesh1 = dlf.IntervalMesh(xpoints, 0.0, thick_mesh)
-
+    mesh2 = dlf.IntervalMesh(xpoints, 0.0, thick_mesh)
+    
     nor = int(np.log(dx_max / dx_min) / np.log(2))
     if debug:
         nor_ranges = []
@@ -416,9 +454,16 @@ def single_layer(
             nor_ranges.insert(
                 0, "dx={0:.1E}um to x={1:.1E}um".format(mesh1.hmin() * 1e4, thick_mesh_ref * 1e4)
             )
+        
+        cell_markers = dlf.MeshFunction("bool", mesh2, mesh2.topology().dim(), False)
+        for cell in dlf.cells(mesh2):
+            p = cell.midpoint()
+            if p[0] >= thick_mesh - thick_mesh_ref or p[0] <= thick_mesh_ref:
+                cell_markers[cell] = True
+        mesh2 = dlf.refine(mesh2, cell_markers)
 
         thick_mesh_ref = thick_mesh_ref / 1.5
-    
+        
 
     
     # %% Dolphin FEM Meshing
@@ -432,35 +477,65 @@ def single_layer(
     # Define the measures
     ds1 = dlf.Measure("ds", domain=mesh1, subdomain_data=mesh_func)
     dx1 = dlf.Measure("dx", domain=mesh1, subdomain_data=mesh_func)
+    
+    # %% Dolphin FEM Meshing
+    # Initialize mesh function for boundary domains
+    mesh_func2 = dlf.MeshFunction("size_t", mesh2, mesh2.topology().dim() - 1)
+    mesh_func2.set_all(0)
+
+    top.mark(mesh_func2, 1)
+    bottom.mark(mesh_func2, 2)
+
+    # Define the measures
+    ds2 = dlf.Measure("ds", domain=mesh2, subdomain_data=mesh_func2)
+    dx2 = dlf.Measure("dx", domain=mesh2, subdomain_data=mesh_func2)
 
     # %% Dolphin FEM meshing
-    ftrial_t0 = dlf.Expression(
+    f1_trial_t0 = dlf.Expression(
         (sp.printing.ccode(conc.evalf()), sp.printing.ccode(f_vs.rhs)), degree=1
     )
 
     # Defining the mixed function space
-    CG1 = dlf.FiniteElement("CG", mesh1.ufl_cell(), 1)  # TODO Remove, only used once
-    W_elem = dlf.MixedElement([CG1, CG1]) # TODO Remove, only used once
-    W = dlf.FunctionSpace(mesh1, W_elem)
+    CG1 = dlf.FiniteElement("CG", mesh1.ufl_cell(), 1)
+    W1 = dlf.FunctionSpace(mesh1,  dlf.MixedElement([CG1, CG1]))
 
     # Defining the "Trial" functions
-    ftrial_ti1 = dlf.interpolate(ftrial_t0, W)  # For time i+1
-    # c_ftrial_ti1, phi_ftrial_ti1 = split(ftrial_ti1)
-    ftrial_tig = dlf.interpolate(ftrial_t0, W)  # For time i+1/2
-    # c_ftrial_tig, phi_ftrial_tig = split(ftrial_tig)
-    ftrial_ti0 = dlf.interpolate(ftrial_t0, W)  # For time i
-    # c_ftrial_ti0, phi_ftrial_ti0 = split(ftrial_ti0)
+    f1_trial_ti1 = dlf.interpolate(f1_trial_t0, W1)  # For time i+1
+    c1_trial_ti1, phi1_trial_ti1 = split(f1_trial_ti1)
+    f1_trial_tig = dlf.interpolate(f1_trial_t0, W1)  # For time i+1/2
+    c1_trial_tig, phi1_trial_tig = split(f1_trial_tig)
+    f1_trial_ti0 = dlf.interpolate(f1_trial_t0, W1)  # For time i
+    c1_trial_ti0, phi1_trial_ti0 = split(f1_trial_ti0)
 
     # Define the test functions
-    ftest = dlf.TestFunction(W)  # TODO Remove, only used once
-    (c_ftest, phi_ftest) = split(ftest)
+    (c1_test, phi1_test) = split(dlf.TestFunction(W1))
 
-    du1 = dlf.TrialFunction(W)
+    du1 = dlf.TrialFunction(W1)
 
-    ftrial_ti1.set_allow_extrapolation(True)
-    ftrial_tig.set_allow_extrapolation(True)
-    ftrial_ti0.set_allow_extrapolation(True)
+    f1_trial_ti1.set_allow_extrapolation(True)
+    f1_trial_tig.set_allow_extrapolation(True)
+    f1_trial_ti0.set_allow_extrapolation(True)
+    
+    # %% Dolphin FEM meshing
+    # f2_trial_t0 = dlf.Expression('cb', cb=c2bulk, degree=0)
+    f2_trial_t0 = dlf.Expression(sp.printing.ccode(conc2.evalf()), degree=0)
 
+    W2 = dlf.FunctionSpace(mesh2, 'CG', 1)
+
+    # Defining the "Trial" functions
+    c2_trial_ti1 = dlf.interpolate(f2_trial_t0, W2)  # For time i+1
+    c2_trial_tig = dlf.interpolate(f2_trial_t0, W2)  # For time i+1/2
+    c2_trial_ti0 = dlf.interpolate(f2_trial_t0, W2)  # For time i
+
+
+    # Define the test functions
+    c2_test = dlf.TestFunction(W2)
+    
+    du2 = dlf.TrialFunction(W2)
+
+    c2_trial_ti1.set_allow_extrapolation(True)
+    c2_trial_tig.set_allow_extrapolation(True)
+    c2_trial_ti0.set_allow_extrapolation(True)
     # %% Dolphin FEM bc
     def mid_bias(x_arr, y_arr, l_pnts, x2):
         # array of len x_arr with true for linear region
@@ -475,28 +550,30 @@ def single_layer(
         return m * x2 + b
 
     def update_bcs(bias_0, bias_L=0.0, pin=False):
-        bcs_ = [dlf.DirichletBC(W.sub(1), bias_L, mesh_func, 2)]
+        bcs_ = [dlf.DirichletBC(W1.sub(1), bias_L, mesh_func, 2)]
         if pin:
-            bcs_.insert(0, dlf.DirichletBC(W.sub(1), bias_0, mesh_func, 1))
+            bcs_.insert(0, dlf.DirichletBC(W1.sub(1), bias_0, mesh_func, 1))
 
         if "const" in in_flux[0].lower():
-            bcs_.insert(0, dlf.DirichletBC(W.sub(0), csurf_vol, mesh_func, 1))
+            bcs_.insert(0, dlf.DirichletBC(W1.sub(0), csurf_vol, mesh_func, 1))
         return bcs_
 
     volt_mesh0 = (1 - thick_mesh / thick) * voltage
     bcs = update_bcs(voltage, volt_mesh0, voltage_pin)
-
+    
+    bcs2 = None
+    
     thick_flux = diffusivity / mesh1.hmin() / 10
 
     # %% Dolphin FEM functions
-    def get_variational_form(c_ftrial, phi_ftrial, gp1_, gp2_, time_i):
+    def get_variational_form1(c_ftrial, phi_ftrial, gp1_, gp2_, time_i):
         """
         Generate voltage bc
         
         non-imported terms:
             csurf, csurf_vol, in_flux
             screen, zq, kbT, mob
-            c_ftest, phi_ftest
+            c1_test, phi1_test
             dx1, ds1
                         
         """
@@ -526,21 +603,46 @@ def single_layer(
             scr_exp = dlf.Expression("exp(-1*kd*x[0])", kd=abs(1/(screen*1e-7)), degree=1)
         
         # Base NP
-        a = -diffusivity * inner(grad(c_ftrial), grad(c_ftest)) * dx1  # Anp term 1
-        a += c_grad_01 * c_ftest * ds1(1)  # Anp term2 in; i.e. bc in
-        a += c_grad_12 * c_ftest * ds1(2)  # Anp term2 out; i.e. bc out
+        a = -diffusivity * inner(grad(c_ftrial), grad(c1_test)) * dx1  # Anp term 1
+        a += c_grad_01 * c1_test * ds1(1)  # Anp term2 in; i.e. bc in
+        a += c_grad_12 * c1_test * ds1(2)  # Anp term2 out; i.e. bc out
         # W/ bias
-        a -= mob * c_ftrial * inner(grad(phi_ftrial), grad(c_ftest)) * dx1  # Anp term 3
-        a += mob * gp1_ * c_ftrial * c_ftest * ds1(1)  # Anp term 4 in
-        a += mob * gp2_ * c_ftrial * c_ftest * ds1(2)  # Anp term 4 out
+        a -= mob * c_ftrial * inner(grad(phi_ftrial), grad(c1_test)) * dx1  # Anp term 3
+        a += mob * gp1_ * c_ftrial * c1_test * ds1(1)  # Anp term 4 in
+        a += mob * gp2_ * c_ftrial * c1_test * ds1(2)  # Anp term 4 out
         
         # W/ Poisson
-        a -= inner(grad(phi_ftrial), grad(phi_ftest)) * dx1  # Ap term 1
-        a += gp1_ * phi_ftest * ds1(1)  # Ap term 2 in
-        a += gp2_ * phi_ftest * ds1(2)  # Ap term 2 out
-        a += qee * c_ftrial * phi_ftest * scr_exp * dx1  # Ap term 3
+        a -= inner(grad(phi_ftrial), grad(phi1_test)) * dx1  # Ap term 1
+        a += gp1_ * phi1_test * ds1(1)  # Ap term 2 in
+        a += gp2_ * phi1_test * ds1(2)  # Ap term 2 out
+        a += qee * c_ftrial * phi1_test * scr_exp * dx1  # Ap term 3
         return a
+    
+    def get_variational_form2(c_ftrial):
 
+        if "surf" in in_flux2[0].lower():
+            c_grad_01 = in_flux2[1] * c2surf  # * 1e-8
+        elif "inter" in in_flux2[0].lower():
+            c_grad_01 = in_flux2[1][0] * (c2surf_vol - c_ftrial / in_flux2[1][1])  # * 1e4
+        else: 
+            c_grad_01 = 0.0
+
+
+        if "surf" in out_flux2[0].lower():
+            c_grad_12 = -out_flux2[1] * c2surf  # * 1e-8
+        elif "inter" in out_flux2[0].lower():
+            c_grad_12 = -out_flux2[1][0] * (c2surf_vol - c_ftrial / out_flux2[1][1])  # * 1e4
+        elif thick != thick_mesh:
+            c_grad_12 = -thick_flux * c_ftrial
+        else:
+            c_grad_12 = 0.0
+            
+        # Base NP
+        a = -diffusivity2 * inner(grad(c_ftrial), grad(c2_test)) * dx2  # Anp term 1
+        a += c_grad_01 * c2_test * ds2(1)  # Anp term2 in; i.e. bc in
+        a += c_grad_12 * c2_test * ds2(2)  # Anp term2 out; i.e. bc out
+        return a
+    
     def getTRBDF2ta(c_ftrial, phi_ftrial):
         if isinstance(screen, str):
             scr_exp = exp(-1 * zq * phi_ftrial / kbT)
@@ -567,15 +669,7 @@ def single_layer(
             screen, zq, kbT, valence, thick, bias, er
             
         """
-        # The total concentration in the oxide (um-2)
-        #        c_ftrial,phi_ftrial = ui.split()
-        #        Ctot = assemble(c_ftrial*dx)
-        # The integral in Poisson's equation solution (Nicollian & Brews p.426)
-        # units: 1/um
-        #        Cint = assemble(c_ftrial*dlf.Expression('x[0]',degree=1)*dx)
-
-        # Get the solution in an array form
-        uxi, uci, upi = get_solution_array(mesh1, uui)
+        uxi, uci, upi = get_solution_array1(mesh1, uui)
         
         if isinstance(screen, str):
             scr_exp = np.exp(-1 * zq * upi / kbT)
@@ -599,24 +693,22 @@ def single_layer(
         xbar_ = uxi.mean()
         if Ctot_ != 0:
             xbar_ = Cint_ / Ctot_  # * 1e4
-        
-        scd_clg = constants.e * valence2 * Ctot_ / 2 / epsilon
-        scd_clsi = constants.e * valence3 * Ctot_ / 2 / epsilon
+
         # The surface charge density at silicon C/cm2
-        scd_si = qee * (xbar_ / thick) * Ctot_ 
+        scd_si = -1 * constants.e * valence * (xbar_ / thick) * Ctot_
         # scd_si2 = -1 * constants.e * valence * integrate.simps( uxi / thick * uci * np.exp(screen * uxi), uxi)
         # The surface charge density at the gate C/cm2
-        scd_g = qee * (1.0 - xbar_ / thick) * Ctot_ 
+        scd_g = -1 * constants.e * valence * (1.0 - xbar_ / thick) * Ctot_
         # scd_g2 = constants.e * valence * integrate.simps((uxi - thick) / thick * uci * np.exp(screen * uxi), uxi)
         uei = np.diff(upi)/np.diff(uxi)
         # The applied electric field in V/cm
         field_app = bias / thick
         # The electric field at the gate interface V/um
         # (C / cm^2) * (J * m / C^2 ) x ( 1E2 cm / 1 m) x ( 1E cm / 1E4 um)
-        gp1_ = field_app - scd_g  + scd_clg # x
+        gp1_ = field_app + scd_g / (constants.epsilon_0 * er) * 100  # x
         # gp1_2 = field_app + scd_g2 / (constants.epsilon_0 * er) * 100  # x
         # The electric field at the Si interface V/um
-        gp2_ = -field_app - scd_si + scd_clsi  # x
+        gp2_ = -(field_app - scd_si / (constants.epsilon_0 * er) * 100)  # x
         # gp2_2 = -(field_app - scd_si2 / (constants.epsilon_0 * er) * 100)  # x
 
         return gp1_, gp2_, Cint_, Ctot_, xbar_
@@ -657,8 +749,8 @@ def single_layer(
         )
 
         Lss_ = (
-            mob * inner(grad(trial_t1), grad(c_ftest))
-            + (mob / 2) * div(grad(trial_t1)) * c_ftest
+            mob * inner(grad(trial_t1), grad(c1_test))
+            + (mob / 2) * div(grad(trial_t1)) * c1_test
         )
         
         return tau_, Lss_
@@ -669,70 +761,85 @@ def single_layer(
         Generate dlf solvers
         
         non-imported terms:
-            ftrial_ti0, ftrial_tig, ftrial_ti1
-            c_ftest
+            f1_trial_ti0, f1_trial_tig, f1_trial_ti1
+            c1_test
             dx1
             TRF, BDF2_T1, BDF2_T2, BDF2_T3
             mob, diffusivity
-            ftrial_tig, ftrial_ti1, du1
+            f1_trial_tig, f1_trial_ti1, du1
             bcs, ffc_options, newton_solver_parameters
             
         """
-        a10 = get_variational_form(ftrial_ti0[0], ftrial_ti0[1], gp1_, gp2_, time_i)
-        a1G = get_variational_form(ftrial_tig[0], ftrial_tig[1], gp1_, gp2_, time_i)
+        a10 = get_variational_form1(c1_trial_ti0, phi1_trial_ti0, gp1_, gp2_, time_i)
+        a1G = get_variational_form1(c1_trial_tig, phi1_trial_tig, gp1_, gp2_, time_i)
 
-        F1G = (1.0 / dt_) * (ftrial_tig[0] - ftrial_ti0[0]) * c_ftest * dx1 - TRF * (a1G + a10)
+        F1G = (1.0 / dt_) * (c1_trial_tig - c1_trial_ti0) * c1_test * dx1 - TRF * (a1G + a10)
 
-        tau, Lss = SUPG_terms(ftrial_ti0[1], ftrial_tig[1])
+        tau, Lss = SUPG_terms(phi1_trial_ti0, phi1_trial_tig)
         
         # SUPG Stabilization term
-        ta = getTRBDF2ta(ftrial_tig[0], ftrial_tig[1])
-        tb = getTRBDF2ta(ftrial_ti0[0], ftrial_ti0[1])
+        ta = getTRBDF2ta(c1_trial_tig, phi1_trial_tig)
+        tb = getTRBDF2ta(c1_trial_ti0, phi1_trial_ti0)
 
-        ra = inner(((1 / dt_) * (ftrial_tig[0] - ftrial_ti0[0]) - TRF * (ta + tb)), tau * Lss) * dx1
+        ra = inner(((1 / dt_) * (c1_trial_tig - c1_trial_ti0) - TRF * (ta + tb)), tau * Lss) * dx1
 
         F1G += ra
 
-        J1G = dlf.derivative(F1G, ftrial_tig, du1)
+        J1G = dlf.derivative(F1G, f1_trial_tig, du1)
 
         problem1G = dlf.NonlinearVariationalProblem(
-            F1G, ftrial_tig, bcs, J1G, form_compiler_parameters=ffc_options
+            F1G, f1_trial_tig, bcs, J1G, form_compiler_parameters=ffc_options
         )
 
         solver1G_ = dlf.NonlinearVariationalSolver(problem1G)
         solver1G_.parameters.update(newton_solver_parameters)
         solver1G_.solve()
+        
+        a20 = get_variational_form2(c2_trial_ti0)
+        a2G = get_variational_form2(c2_trial_tig)
+
+        F2G = (1.0 / dt_) * (c2_trial_tig - c2_trial_ti0) * c2_test * dx2 - TRF * (a2G + a20)
+
+        J2G = dlf.derivative(F2G, c2_trial_tig, du2)
+
+        problem2G = dlf.NonlinearVariationalProblem(
+            F2G, c2_trial_tig, bcs2, J2G, form_compiler_parameters=ffc_options
+        )
+
+        solver2G_ = dlf.NonlinearVariationalSolver(problem2G)
+        solver2G_.parameters.update(newton_solver_parameters)
+        solver2G_.solve()
     
     def solve_1N(gp1_, gp2_, dt_, time_i):
         """
         Generate dlf solvers
         
         non-imported terms:
-            ftrial_ti0, ftrial_tig, ftrial_ti1
-            c_ftest
+            f1_trial_ti0, f1_trial_tig, f1_trial_ti1
+            c1_test
             dx1
             TRF, BDF2_T1, BDF2_T2, BDF2_T3
             mob, diffusivity
-            ftrial_tig, ftrial_ti1, du1
+            f1_trial_tig, f1_trial_ti1, du1
             bcs, ffc_options, newton_solver_parameters
             
         """
-        a11 = get_variational_form(ftrial_ti1[0], ftrial_ti1[1], gp1_, gp2_, time_i)
+        a11 = get_variational_form1(c1_trial_ti1, phi1_trial_ti1, gp1_, gp2_, time_i)
 
         F1N = (1.0 / dt_) * (
-            ftrial_ti1[0] - BDF2_T1 * ftrial_tig[0] + BDF2_T2 * ftrial_ti0[0]
-        ) * c_ftest * dx1 - BDF2_T3 * a11
+            c1_trial_ti1 - BDF2_T1 * c1_trial_tig + BDF2_T2 * c1_trial_ti0
+        ) * c1_test * dx1 - BDF2_T3 * a11
         
-        tau, Lss = SUPG_terms(ftrial_tig[1], ftrial_ti1[1])
+        tau, Lss = SUPG_terms(phi1_trial_tig, phi1_trial_ti1)
         
         # SUPG Stabilization term
-        tc = getTRBDF2ta(ftrial_ti1[0], ftrial_ti1[1])
+        tc = getTRBDF2ta(c1_trial_ti1, phi1_trial_ti1)
         rb = (
             inner(
                 (
-                    ftrial_ti1[0] / dt_
-                    - BDF2_T1 * ftrial_tig[0] / dt_
-                    + BDF2_T2 * ftrial_ti0[0] / dt_
+                    c1_trial_ti1 / dt_
+                    - BDF2_T1 * c1_trial_tig / dt_
+                    + BDF2_T2 * c1_trial_ti0 / dt_
                     - BDF2_T3 * tc
                 ),
                 tau * Lss,
@@ -742,16 +849,37 @@ def single_layer(
 
         F1N += rb
 
-        J1N = dlf.derivative(F1N, ftrial_ti1, du1)  # J1G
+        J1N = dlf.derivative(F1N, f1_trial_ti1, du1)  # J1G
 
         problem1N = dlf.NonlinearVariationalProblem(
-            F1N, ftrial_ti1, bcs, J1N, form_compiler_parameters=ffc_options
+            F1N, f1_trial_ti1, bcs, J1N, form_compiler_parameters=ffc_options
         )
         solver1N_ = dlf.NonlinearVariationalSolver(problem1N)
         solver1N_.parameters.update(newton_solver_parameters)
         solver1N_.solve()
+        
+        a21 = get_variational_form2(c2_trial_ti1)
+
+        F2N = (1.0 / dt_) * (
+            c2_trial_ti1 - BDF2_T1 * c2_trial_tig + BDF2_T2 * c2_trial_ti0
+        ) * c2_test * dx2 - BDF2_T3 * a21
+        
+
+        J2N = dlf.derivative(F2N, c2_trial_ti1, du2)  # J1G
+
+        problem2N = dlf.NonlinearVariationalProblem(
+            F2N, c2_trial_ti1, bcs2, J2N, form_compiler_parameters=ffc_options
+        )
+        solver2N_ = dlf.NonlinearVariationalSolver(problem2N)
+        solver2N_.parameters.update(newton_solver_parameters)
+        solver2N_.solve()
+        
+        
+
     # %% Get initial vals
-    x1i, c1i, p1i = get_solution_array(mesh1, ftrial_ti0)
+    x1i, c1i, p1i = get_solution_array1(mesh1, f1_trial_ti0)
+    x2i, c2i = get_solution_array2(mesh2, c2_trial_ti0)
+    csi = c1i + c2i
     c_max = -np.inf
 
     # %% Save to hdf
@@ -779,6 +907,7 @@ def single_layer(
             grp_l1.attrs["csurf"] = csurf
             grp_l1.attrs["cbulk"] = cbulk
             grp_l1.attrs["D"] = diffusivity
+            grp_l1.attrs["D2"] = diffusivity2
             grp_l1.attrs["er"] = er
             grp_l1.attrs["T"] = tempC
             grp_l1.attrs["V"] = voltage
@@ -835,14 +964,17 @@ def single_layer(
         else:
             bcs = update_bcs(voltage, volt_intf, voltage_pin)
 
-        gp1, gp2, Cint, Ctot, xbar = update_potential_bc(ftrial_ti0, bias=voltage)
-        x1i, c1i, p1i = get_solution_array(mesh1, ftrial_ti0)
-
+        gp1, gp2, Cint, Ctot, xbar = update_potential_bc(f1_trial_ti0, bias=voltage)
+        
+        x1i, c1i, p1i = get_solution_array1(mesh1, f1_trial_ti0)
+        x2i, c2i = get_solution_array2(mesh2, c2_trial_ti0)
+        csi = c1i + c2i
+        
         c_max = max(c_max, np.amax(c1i))
         thick_flux = thick_flux * c1i[-1] / cbulk
         if func is not None:
-            func(x1i * 1e4, c1i, p1i)
-        # scatter(pd.DataFrame([x1i,c1i,p1i], index=["depth", "conc", "volt"]), x="")
+            func(x1i * 1e4, csi, p1i)
+
         if h5fn is not None:
             # Store the data in h5py
             with h5py.File(h5fn_tmp, "a") as hf:
@@ -853,7 +985,7 @@ def single_layer(
                 if dsc_str not in grp_l1_c:
                     grp_l1_c.attrs["t_final"] = t
                     dsc1 = grp_l1_c.create_dataset(dsc_str, (len(x1i),), compression="gzip")
-                    dsc1[...] = c1i
+                    dsc1[...] = csi
                     dsc1.attrs["time"] = t
                 if dsv_str not in grp_l1_p:
                     grp_l1_p.attrs["t_final"] = t
@@ -868,7 +1000,7 @@ def single_layer(
             else:
                 prog_str += "Qb={0:.3g} um, ".format(xbar * 1e4)
             xbar_n = np.argmin(abs(x1i - xbar * 2))  # Get index of 2*xbar
-            # vpin = p1i[0]
+
             if round(p1i.max()) != round(voltage):
                 prog_str += "Vmax={0:.4g} V, ".format(p1i.max())
                 if p1i.max() != p1i[0] and round(p1i[0]) != round(voltage):
@@ -884,17 +1016,23 @@ def single_layer(
                 prog_str += "VL={0:.4g} V, ".format(p1i[-1])
             # prog_str += "Eave={0:1.2E} V/cm, ".format((p1i / (thick - x1i))[:-1].mean())
             prog_str += "E0={0:1.2E} V/cm, EL={1:.2E} V/cm, ".format(gp1, gp2)
-            prog_str += "C0={0:.2E}, ".format(c1i[0])
-            if c1i[-1] > c1i.max() * 1e-10 or c1i[-1] < cbulk:
-                prog_str += "CL={0:.2E}, ".format(c1i[-1])
+            C1exp = int(np.log10(c1i[0]))
+            C2exp = int(np.log10(c2i[0]))
+            Csexp = int(np.log10(csi[0]))
+            if C1exp >= Csexp - 10 and C2exp >= Csexp - 10:
+                prog_str += "C0[+, 0, sum]=[{0:.2f}, {1:.2f}, {2:.2f}]E+{3:d}, ".format(c1i[0]/10**Csexp, c2i[0]/10**Csexp, csi[0]/10**Csexp, Csexp)
+            else:
+                prog_str += "C0={0:.2E}, ".format(csi[0])
+            if csi[-1] > csi.max() * 1e-10 or csi[-1] < cbulk:
+                prog_str += "CL={0:.2E}, ".format(csi[-1])
             prog_str += "Cb={0:.2E}, Ct={1:.2E}".format(
-                integrate.trapz(c1i[:xbar_n], x1i[:xbar_n] * 1e-4), integrate.trapz(c1i, x1i * 1e-4)
+                integrate.trapz(csi[:xbar_n], x1i[:xbar_n] * 1e-4), integrate.trapz(csi, x1i * 1e-4)
             )
 
             fcallLogger.info(prog_str)
 
         try:
-            if any(c1i < 0):
+            if any(csi < 0):
                 raise RuntimeError("Invalid Concentration Values")
             # c1i[np.argmax(c1i <= cbulk):] = cbulk
             solve_1G(gp1, gp2, dti, t)
@@ -907,20 +1045,23 @@ def single_layer(
                 _,
                 _,
                 _,
-            ) = update_potential_bc(ftrial_tig, bias=voltage)
+            ) = update_potential_bc(f1_trial_tig, bias=voltage)
             solve_1N(gp1, gp2, dti, t)
 
             # Update previous solution
-            ftrial_ti0.assign(ftrial_ti1)
+            f1_trial_ti0.assign(f1_trial_ti1)
+            c2_trial_ti0.assign(c2_trial_ti1)
 
         except KeyboardInterrupt:
             fcallLogger.error("Program halted")
-            x1i, c1i, p1i = get_solution_array(mesh1, ftrial_ti0)
-            return t_sim, x1i, c1i, p1i, c_max
+            x1i, c1i, p1i = get_solution_array1(mesh1, f1_trial_ti0)
+            x2i, c2i = get_solution_array2(mesh2, c2_trial_ti0)
+            csi = c1i + c2i
+            return t_sim, x1i, csi, p1i, c_max
 
         except RuntimeError:
             message = "Could not solve for time {0:.1f} h. D1 = {1:.3E} cm2/s CSi = {2:.1E} 1/cm^3,\t".format(
-                t / 3600, diffusivity, c1i[-1] * 1e1
+                t / 3600, diffusivity, csi[-1] * 1e1
             )
             message += "T = {0:3.1f} °C, E = {1:.1E} MV/cm, tmax: {2:3.2f} hr, XPOINTS = {3:d}, tpoints: {4}".format(
                 tempC, voltage / thick * 1e-6, time_s / 3600, xpoints, format_time_str(dt_max)
@@ -936,7 +1077,7 @@ def single_layer(
                 )
                 fcall += 1
 
-                return single_layer(
+                return double_ion(
                     tempC=tempC,
                     voltage=voltage,
                     thick=thick,
@@ -953,8 +1094,10 @@ def single_layer(
 
             else:
                 fcallLogger.error("Reached max refinement without success...")
-                x1i, c1i, p1i = get_solution_array(mesh1, ftrial_ti0)
-                return t_sim, x1i * 1e4, c1i, p1i, c_max
+                x1i, c1i, p1i = get_solution_array1(mesh1, f1_trial_ti0)
+                x2i, c2i = get_solution_array2(mesh2, c2_trial_ti0)
+                csi = c1i + c2i
+                return t_sim, x1i * 1e4, csi, p1i, c_max
 
     if h5fn is not None:
         with h5py.File(h5fn_tmp, "a") as hf:
@@ -974,7 +1117,10 @@ def single_layer(
             for n, f in enumerate(hf_nms)
             if f.startswith(h5fn.split(os.sep)[-1][:-3] + "_")
         ]
-    
-    fcallLogger.info("Stop: {}".format(date.now().strftime("%D_%H:%M:%S")))
-    return t_sim, x1i * 1e4, c1i, p1i, c_max
-
+    tm_delta = time.time() - tm_start
+    fcallLogger.info("Stop: {0} [{1} elapsed]".format(
+        date.now().strftime("%D_%H:%M:%S"),
+        format_time_str(tm_delta)
+        )
+    )
+    return t_sim, x1i * 1e4, csi, p1i, c_max

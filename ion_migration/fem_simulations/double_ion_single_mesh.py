@@ -85,7 +85,7 @@ def format_time_str(time_s: float):
         time_str = "%02d" % time_s
     return time_str
 
-def single_layer(
+def double_ion_single_mesh(
     tempC: float,
     voltage: float,
     thick: float,
@@ -136,7 +136,7 @@ def single_layer(
         my_logger.addHandler(fh)
         my_logger.addHandler(ch)
 
-        tsim, x1, ftrial_ti1[0], x2, c2, cmax = pnpfs.single_layer_constant_source_flux(
+        tsim, x1, ftrial_ti1[0], x2, c2, cmax = pnpfs.double_ion_single_mesh_constant_source_flux(
             diffusivity=D1, thick=thickness_1,
             tempC=temp_c, voltage=voltage, time_s=csurf,
             rate=k, tpoints=t_steps, h5_storage=h5FileName, er=7.0
@@ -216,6 +216,8 @@ def single_layer(
     thick_mesh_ref = kwargs.get("thick_mesh_ref", thick_mesh * 0.1)
     thick_na = kwargs.get("thick_na", 0.0)
     csurf_vol = kwargs.get("csurf_vol", csurf)
+    cratio = min(kwargs.get("cratio", 0), 1-1e-16)
+    diffusivity2 = kwargs.get("diffusivity2", diffusivity)
     in_flux = kwargs.get("in_flux", ("surface", 1e-4))
     out_flux = kwargs.get("out_flux", ("closed", 0))
     dx_max = kwargs.get("dx_max", 1e-7)
@@ -226,9 +228,6 @@ def single_layer(
     max_iter = kwargs.get("max_iter", 1000)
 
     valence = kwargs.get("valence", 1.0)
-    valence2 = kwargs.get("valence2", 0)
-    valence3 = kwargs.get("valence3", valence2)
-    
     h5fn = kwargs.get("h5_storage", None)
     debug = kwargs.get("debug", False)
     relax_param = kwargs.get("relax_param", 1.0)
@@ -250,16 +249,14 @@ def single_layer(
     
     kbT = constants.Boltzmann * tempK  # CV
     
-    if isinstance(diffusivity, (list, tuple)):
-        mob = zq * diffusivity[0] / kbT
-        diffusivity = sum(diffusivity)
-    else:
-        # The constant mobility z * q * D1 / (kb * T) :: (a.u. * C * cm2/s / (C*V/K * K)) -> cm2/(Vs)
-        mob = zq * diffusivity / kbT
+    # The constant mobility z * q * D1 / (kb * T) :: (a.u. * C * cm2/s / (C*V/K * K)) -> cm2/(Vs)
+    mob = zq * diffusivity / kbT
+    
+    diff_comb = diffusivity * (1 - cratio) + diffusivity2 * cratio
     
     if isinstance(screen, str):
         if "calc" in screen.lower() and "inter" in in_flux[0].lower():
-            screen = np.sqrt(epsilon*kbT/(zq**2*in_flux[1][1]*csurf_vol))*1e7  # cm
+            screen = np.sqrt(epsilon*kbT/(zq**2*in_flux[1][1]*csurf_vol*(1 - cratio)))*1e7  # cm
         elif "none" in screen.lower():
             screen = None
 
@@ -275,7 +272,7 @@ def single_layer(
         thick_na  = dx_max/2**int(np.log(dx_max / dx_min) / np.log(2))*2
         conc = sp.Piecewise(
             (0, x < 0),
-            (csurf, x <= thick_na),  # CM3TOUM3
+            (csurf*(1 - cratio), x <= thick_na),  # CM3TOUM3
             (cbulk, x <= thick),  # CM3TOUM3
             (0, x > thick),
             evaluate=False,
@@ -283,7 +280,7 @@ def single_layer(
 
         ion_dens = sp.Piecewise(
             (0, x < 0),
-            (qee * csurf, x <= thick_na),  # CM3TOUM3
+            (qee * csurf*(1 - cratio), x <= thick_na),  # CM3TOUM3
             (qee * cbulk, x <= thick),  # CM3TOUM3
             (0, x > thick),
             evaluate=False,
@@ -292,7 +289,7 @@ def single_layer(
     else:
         conc = sp.Piecewise(
             (0, x < 0),
-            (csurf_vol, x <= thick_na),  # CM3TOUM3
+            (csurf_vol*(1 - cratio), x <= thick_na),  # CM3TOUM3
             (cbulk, x <= thick),  # CM3TOUM3
             (0, x > thick),
             evaluate=False,
@@ -300,7 +297,7 @@ def single_layer(
 
         ion_dens = sp.Piecewise(
             (0, x < 0),
-            (qee * csurf_vol, x <= thick_na),  # CM3TOUM3
+            (qee * csurf_vol*(1 - cratio), x <= thick_na),  # CM3TOUM3
             (qee * cbulk, x <= thick),  # CM3TOUM3
             (0, x > thick),
             evaluate=False,
@@ -480,7 +477,7 @@ def single_layer(
             bcs_.insert(0, dlf.DirichletBC(W.sub(1), bias_0, mesh_func, 1))
 
         if "const" in in_flux[0].lower():
-            bcs_.insert(0, dlf.DirichletBC(W.sub(0), csurf_vol, mesh_func, 1))
+            bcs_.insert(0, dlf.DirichletBC(W.sub(0), csurf_vol*(1 - cratio), mesh_func, 1))
         return bcs_
 
     volt_mesh0 = (1 - thick_mesh / thick) * voltage
@@ -500,7 +497,7 @@ def single_layer(
             dx1, ds1
                         
         """
-        c_grad_01 = -mob * c_ftrial * gp1_
+        c_grad_01 = -mob * c_ftrial * (1 - cratio) * gp1_
         if "surf" in in_flux[0].lower():
             c_grad_01 += in_flux[1] * csurf  # * 1e-8
         elif "inter" in in_flux[0].lower():
@@ -508,7 +505,7 @@ def single_layer(
         elif "const" in in_flux[0].lower():  # or "block" in in_flux[0].lower():
             c_grad_01 = 0.0
 
-        c_grad_12 = -mob * c_ftrial * gp2_
+        c_grad_12 = -mob * c_ftrial * (1 - cratio) * gp2_
         if "surf" in out_flux[0].lower():
             c_grad_12 -= out_flux[1] * csurf  # * 1e-8
         elif "inter" in out_flux[0].lower():
@@ -516,7 +513,7 @@ def single_layer(
         elif "const" in out_flux[0].lower():  # or "block" in out_flux[0].lower():
             c_grad_12 = 0.0
         elif thick != thick_mesh:
-            c_grad_12 -= thick_flux * c_ftrial
+            c_grad_12 -= thick_flux * c_ftrial * (1 - cratio)
         
         if isinstance(screen, str):
             scr_exp = exp(-1 * zq * phi_ftrial / kbT)
@@ -525,20 +522,31 @@ def single_layer(
         else:
             scr_exp = dlf.Expression("exp(-1*kd*x[0])", kd=abs(1/(screen*1e-7)), degree=1)
         
+        
+        # # Base NP
+        # a = -diff_comb * inner(grad(c_ftrial), grad(c_ftest)) * dx1  # Anp term 1 *(1 - cratio)
+        # a += c_grad_01 * c_ftest * ds1(1)  # Anp term2 in; i.e. bc in
+        # a += c_grad_12 * c_ftest * ds1(2)  # Anp term2 out; i.e. bc out
+        # # W/ bias
+        # a -= mob * c_ftrial * (1 - cratio) * inner(grad(phi_ftrial), grad(c_ftest)) * dx1  # Anp term 3
+        # a += mob * gp1_ * c_ftrial * c_ftest * ds1(1)  # Anp term 4 in
+        # a += mob * gp2_ * c_ftrial * c_ftest * ds1(2)  # Anp term 4 out
+        
         # Base NP
-        a = -diffusivity * inner(grad(c_ftrial), grad(c_ftest)) * dx1  # Anp term 1
+        a = -diffusivity * (1 - cratio) * inner(grad(c_ftrial), grad(c_ftest)) * dx1  # Anp term 1 *(1 - cratio)
+        a = -diffusivity2 * cratio * inner(grad(c_ftrial), grad(c_ftest)) * dx1  # Anp term 1 *(1 - cratio)
         a += c_grad_01 * c_ftest * ds1(1)  # Anp term2 in; i.e. bc in
         a += c_grad_12 * c_ftest * ds1(2)  # Anp term2 out; i.e. bc out
         # W/ bias
-        a -= mob * c_ftrial * inner(grad(phi_ftrial), grad(c_ftest)) * dx1  # Anp term 3
+        a -= mob * c_ftrial * (1 - cratio) * inner(grad(phi_ftrial), grad(c_ftest)) * dx1  # Anp term 3
         a += mob * gp1_ * c_ftrial * c_ftest * ds1(1)  # Anp term 4 in
         a += mob * gp2_ * c_ftrial * c_ftest * ds1(2)  # Anp term 4 out
         
         # W/ Poisson
         a -= inner(grad(phi_ftrial), grad(phi_ftest)) * dx1  # Ap term 1
-        a += gp1_ * phi_ftest * ds1(1)  # Ap term 2 in
-        a += gp2_ * phi_ftest * ds1(2)  # Ap term 2 out
-        a += qee * c_ftrial * phi_ftest * scr_exp * dx1  # Ap term 3
+        a += gp1_ * phi_ftest * ds1(1) * (1 - cratio)  # Ap term 2 in
+        a += gp2_ * phi_ftest * ds1(2) * (1 - cratio)  # Ap term 2 out
+        a += qee * c_ftrial * (1 - cratio) * phi_ftest * scr_exp * dx1  # Ap term 3
         return a
 
     def getTRBDF2ta(c_ftrial, phi_ftrial):
@@ -549,12 +557,20 @@ def single_layer(
         else:
             scr_exp = dlf.Expression("exp(-1*kd*x[0])", kd=abs(1/(screen*1e-7)), degree=1)
             
+        # r = (
+        #     diff_comb * div(grad(c_ftrial))  # Lnp term 1
+        #     + mob * c_ftrial * (1 - cratio) * div(grad(phi_ftrial))  # Lnp term 2
+        #     + mob * inner(grad(phi_ftrial), grad(c_ftrial * (1 - cratio)))  # Lnp term 3
+        #     + div(grad(phi_ftrial))  # Lp term 1
+        #     + qee * c_ftrial * (1 - cratio) * scr_exp  # Lp term 2
+        # )
         r = (
-            diffusivity * div(grad(c_ftrial))  # Lnp term 1
-            + mob * c_ftrial * div(grad(phi_ftrial))  # Lnp term 2
+            diffusivity * (1 - cratio) * div(grad(c_ftrial))  # Lnp term 1
+            + diffusivity2 * cratio * div(grad(c_ftrial))  # Lnp term 1
+            + mob * c_ftrial * (1 - cratio) * div(grad(phi_ftrial))  # Lnp term 2
             + mob * inner(grad(phi_ftrial), grad(c_ftrial))  # Lnp term 3
             + div(grad(phi_ftrial))  # Lp term 1
-            + qee * c_ftrial * scr_exp  # Lp term 2
+            + qee * c_ftrial * (1 - cratio) * scr_exp  # Lp term 2
         )
         return r
 
@@ -587,36 +603,34 @@ def single_layer(
         # exp_val = -1 * constants.e * valence / (constants.Boltzmann * tempK)
         
         # The integrated concentration in the oxide (cm-2) <- Check: (1/cm^3) x (um) x (1E-4 cm/1um)
-        Ctot_ = integrate.simps(uci * scr_exp, uxi)  # * 1e-4
+        Ctot_ = integrate.simps(uci * (1 - cratio) * scr_exp, uxi)  # * 1e-4
         # Ctot_ = integrate.simps(uci * np.exp(exp_val * upi), uxi)
         # Ctot_ = np.nan_to_num(integrate.simpson(uci * (np.exp(exp_val * upi)-np.exp(-exp_val * upi)), uxi))
         # The integral in Poisson's equation solution (Nicollian & Brews p.426)
         # units: 1/cm <------------- Check: (1/cm^3) x (um^2) x (1E-4 cm/1um)^2
-        Cint_ = integrate.simps(uxi * uci * scr_exp, uxi)  # * 1e-8
+        Cint_ = integrate.simps(uxi * uci * (1 - cratio) * scr_exp, uxi)  # * 1e-8
         # Cint_ = integrate.simps(uxi * uci * np.exp(exp_val * upi), uxi)
         # Cint_ = np.nan_to_num(integrate.simpson(uxi * uci * (np.exp(exp_val * upi)-np.exp(-exp_val * upi)), uxi))
         # The centroid of the charge distribution
         xbar_ = uxi.mean()
         if Ctot_ != 0:
             xbar_ = Cint_ / Ctot_  # * 1e4
-        
-        scd_clg = constants.e * valence2 * Ctot_ / 2 / epsilon
-        scd_clsi = constants.e * valence3 * Ctot_ / 2 / epsilon
+
         # The surface charge density at silicon C/cm2
-        scd_si = qee * (xbar_ / thick) * Ctot_ 
+        scd_si = -1 * constants.e * valence * (xbar_ / thick) * Ctot_
         # scd_si2 = -1 * constants.e * valence * integrate.simps( uxi / thick * uci * np.exp(screen * uxi), uxi)
         # The surface charge density at the gate C/cm2
-        scd_g = qee * (1.0 - xbar_ / thick) * Ctot_ 
+        scd_g = -1 * constants.e * valence * (1.0 - xbar_ / thick) * Ctot_
         # scd_g2 = constants.e * valence * integrate.simps((uxi - thick) / thick * uci * np.exp(screen * uxi), uxi)
         uei = np.diff(upi)/np.diff(uxi)
         # The applied electric field in V/cm
         field_app = bias / thick
         # The electric field at the gate interface V/um
         # (C / cm^2) * (J * m / C^2 ) x ( 1E2 cm / 1 m) x ( 1E cm / 1E4 um)
-        gp1_ = field_app - scd_g  + scd_clg # x
+        gp1_ = field_app + scd_g / (constants.epsilon_0 * er) * 100  # x
         # gp1_2 = field_app + scd_g2 / (constants.epsilon_0 * er) * 100  # x
         # The electric field at the Si interface V/um
-        gp2_ = -field_app - scd_si + scd_clsi  # x
+        gp2_ = -(field_app - scd_si / (constants.epsilon_0 * er) * 100)  # x
         # gp2_2 = -(field_app - scd_si2 / (constants.epsilon_0 * er) * 100)  # x
 
         return gp1_, gp2_, Cint_, Ctot_, xbar_
@@ -779,6 +793,7 @@ def single_layer(
             grp_l1.attrs["csurf"] = csurf
             grp_l1.attrs["cbulk"] = cbulk
             grp_l1.attrs["D"] = diffusivity
+            grp_l1.attrs["D2"] = diffusivity2
             grp_l1.attrs["er"] = er
             grp_l1.attrs["T"] = tempC
             grp_l1.attrs["V"] = voltage
@@ -936,7 +951,7 @@ def single_layer(
                 )
                 fcall += 1
 
-                return single_layer(
+                return double_ion_single_mesh(
                     tempC=tempC,
                     voltage=voltage,
                     thick=thick,
