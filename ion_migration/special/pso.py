@@ -376,7 +376,7 @@ class PickleJar:
     def path(self):
         """Return sum of squared errors (pred vs actual)."""
         if not hasattr(self, "_path"):
-            self._path = pathify("work", "Data", "Analysis", "Pickles", self.folder)
+            self._path = find_path("Data", "Analysis", "Pickles", base=find_path(r"ASU Dropbox", base="drive")) / self.folder
             if not os.path.exists(self._path):
                 os.makedirs(self._path)
         return self._path

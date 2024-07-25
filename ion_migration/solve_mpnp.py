@@ -13,7 +13,7 @@ import numpy as np
 from pathlib import Path
 
 import ion_migration.fem_simulations as pnpfs
-from research_tools.functions import convert_val, scatter, p_find, pathlib_mk
+from research_tools.functions import convert_val, scatter, find_path, pathlib_mk
 
 def getLogger(out_path, filetag, **kwargs):
     """
@@ -132,7 +132,7 @@ runs = {
         }
 
 
-rpath = p_find("Dropbox (ASU)","Work Docs","Data", "Raw", "Simulations", "PNP", "mPNPCL_80_r01", base="home") # "mPNP_80_r9"  "mPNP_80_r10"  "mPNP_80_r11"   "mPNP_80_r12"
+rpath = find_path("Work Docs","Data", "Raw", "Simulations", "PNP", "mPNPCL_80_r01",  base=find_path("ASU Dropbox", base="drive")) # "mPNP_80_r9"  "mPNP_80_r10"  "mPNP_80_r11"   "mPNP_80_r12"
 pathlib_mk(rpath)
 gnote = "Cl at x=0" #"compare calc mPNP and PNP"
 

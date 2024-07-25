@@ -1107,7 +1107,7 @@ def double_ion(
             os.remove(h5fn)
         os.rename(h5fn_tmp, h5fn)
 
-        hf_pths = [f for f in f_find(os.sep.join(h5fn.split(os.sep)[:-1]), re_filter=".h5")]
+        hf_pths = [f for f in find_files(os.sep.join(h5fn.split(os.sep)[:-1]), patterns=".h5")]
         hf_nms = [f.stem for f in hf_pths]
         # hf_nms, hf_pths = get_filenames(
         #     os.sep.join(h5fn.split(os.sep)[:-1]), file_type=".h5", as_path=False, as_name=False

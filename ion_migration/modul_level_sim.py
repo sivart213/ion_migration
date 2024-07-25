@@ -18,7 +18,7 @@ from dataclasses import astuple
 from copy import deepcopy
 
 from research_tools.equations import arrh
-from research_tools.functions import get_const, p_find, convert_val
+from research_tools.functions import get_const, find_path, convert_val
 
 """
 Busted Functions:
@@ -239,7 +239,7 @@ class MatDatabase(object):
     """Calculate. generic discription."""
 
     # def __init__(self):
-    path = p_find("Data", "Databases")
+    path = find_path("Data", "Databases")
     file = "material_data.xlsx"
     database = pd.read_excel(os.sep.join((path, file)), index_col=[0, 1, 2])
 
@@ -1010,7 +1010,7 @@ class Module(object):
         self.sys_volt = sys_volt
         self.size = size
 
-        self.path = p_find("Data", "Databases")
+        self.path = find_path("Data", "Databases")
         self.folder = "MigrationModules"
 
         if dep_vars == []:
@@ -1232,7 +1232,7 @@ params_boro = [
 tri_var = [var_dict["resist_g_var"], var_dict["resist_e_var"], var_dict["resist_n_var"]]
 btt_var = [var_dict["temp_var"], var_dict["efield_var"]]
 
-path = p_find("Data", "Analysis", "Simulations", "Module")
+path = find_path("Data", "Analysis", "Simulations", "Module")
 stacks = ["Glass_Enc_Sinx"]
 
 materials = MatDatabase()

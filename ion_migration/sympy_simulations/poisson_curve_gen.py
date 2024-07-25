@@ -186,7 +186,7 @@ def extract_variable(expr, targ):
 
 # %% Operations
 if __name__ == "__main__":
-    from research_tools.functions import p_find, save
+    from research_tools.functions import find_path, save
 
     f = sp.symbols("f", cls=sp.Function)
     x = sp.Symbol("x", real=True)
@@ -319,15 +319,14 @@ if __name__ == "__main__":
 
     #     res_dfs[f"res_{n}"]  = pd.DataFrame(np.array(data).T, columns=["x", "C", "zqC/e", "E_ion", "E_bias", "E", "V_ion", "V_bias", "V"])
 
-    # save_pth = p_find(
-    #     "Dropbox (ASU)",
+    # save_pth = find_path(
     #     "Work Docs",
     #     "Data",
     #     "Analysis",
     #     "Simulations",
     #     "PNP",
     #     "EVA",
-    #     base="home",
+    #     base=find_path(r"ASU Dropbox", base="drive"),
     # )
 
     # save(res_dfs,save_pth/"Sympy_res","Poisson_res2")

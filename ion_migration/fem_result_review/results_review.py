@@ -10,18 +10,18 @@ import numpy as np
 import pandas as pd
 
 from research_tools.equations import Statistics
-from research_tools.functions import convert_val, f_find, sample_array
+from research_tools.functions import convert_val, find_files, sample_array
 
 
 # %%
 def h5_bulk_in(
     file_pth, x_size=100, x_max=500, **kwargs
 ):  # t_step=1800, t_size=10, t_max=10800.0,
-    files = [f for f in f_find(file_pth, re_filter=".h5")]
+    files = [f for f in find_files(file_pth, patterns=".h5")]
 
     file_dict = {"conc": {}, "volt": {}, "attrs": {}, "key_error": {}}
     for f_path in files:
-        file = load(f_path, target="", re_filter="h5")
+        file = load(f_path, target="", patterns="h5")
         try:
             # parse desired datasets
             atr = file[1].get("EVA", file[1].get("L1", {}))
@@ -270,16 +270,14 @@ def save_w_comments(data, pth, fname, attrs, **kwargs):
 # %% Operations
 if __name__ == "__main__":
     from pathlib import Path
-    from research_tools.functions import save, lineplot_slider, p_find, load, f_find
+    from research_tools.functions import save, lineplot_slider, find_path, load, find_files
 
-    data_pth = p_find(
-        "Dropbox (ASU)",
-        "Work Docs",
+    data_pth = find_path("Work Docs",
         "Data",
         "Raw",
         "Simulations",
         "PNP",
-        base="home",
+        base=find_path(r"ASU Dropbox", base="drive"),
     )
 
     save_pth = Path(
