@@ -21,7 +21,7 @@ def h5_bulk_in(
 
     file_dict = {"conc": {}, "volt": {}, "attrs": {}, "key_error": {}}
     for f_path in files:
-        file = load(f_path, target="", patterns="h5")
+        file = load_file(f_path, target="", patterns="h5")
         try:
             # parse desired datasets
             atr = file[1].get("EVA", file[1].get("L1", {}))
@@ -270,7 +270,7 @@ def save_w_comments(data, pth, fname, attrs, **kwargs):
 # %% Operations
 if __name__ == "__main__":
     from pathlib import Path
-    from research_tools.functions import save, lineplot_slider, find_path, load, find_files
+    from research_tools.functions import save, lineplot_slider, find_path, load_file, find_files
 
     data_pth = find_path("Work Docs",
         "Data",

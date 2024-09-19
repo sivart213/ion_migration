@@ -241,7 +241,7 @@ class MatDatabase(object):
     # def __init__(self):
     path = find_path("Data", "Databases")
     file = "material_data.xlsx"
-    database = pd.read_excel(os.sep.join((path, file)), index_col=[0, 1, 2])
+    database = pd.read_excel(path / file, index_col=[0, 1, 2])
 
     @property
     def material(self):
@@ -307,7 +307,7 @@ class MatDatabase(object):
 
     def save(self):
         """Calculate. generic discription."""
-        self.database.to_excel(os.sep.join((self.path, self.file)))
+        self.database.to_excel(self.path / self.file)
 
 
 class Layer(object):
@@ -1284,7 +1284,7 @@ btt = vary_cond_fits(
 
 # save(
 #     btt,
-#     os.sep.join((path, stacks[0], "Soda_Varied_low")),
+#     path / stacks[0] / "Soda_Varied_low",
 #     "temp_e_time4",
 # )
 
@@ -1302,7 +1302,7 @@ btt = vary_cond_fits(
 # )
 # save(
 #     btt_boro,
-#     os.sep.join((path, stacks[0], "Boro_Varied_low")),
+#     path / stacks[0] / "Boro_Varied_low",
 #     "temp_e_time3",
 # )
 
@@ -1326,7 +1326,7 @@ btt = vary_cond_fits(
 # )
 # save(
 #     tri_time_v5,
-#     os.sep.join((path, stacks[0], "Varied_resistivities")),
+#     path / stacks[0] / "Varied_resistivities",
 #     "all_time_v5",
 # )
 
@@ -1340,7 +1340,7 @@ btt = vary_cond_fits(
 # )
 # save(
 #     tri_time_v1,
-#     os.sep.join((path, stacks[0], "Varied_resistivities")),
+#     path / stacks[0] / "Varied_resistivities",
 #     "all_time_v1",
 # )
 # tri_times = vary_cond_fits(
@@ -1357,7 +1357,7 @@ btt = vary_cond_fits(
 
 # save(
 #     tri_times,
-#     os.sep.join((path, stacks[0], "Varied_resistivities")),
+#     path / stacks[0] / "Varied_resistivities",
 #     "all_times",
 # )
 
@@ -1373,6 +1373,6 @@ btt = vary_cond_fits(
 # )
 # save(
 #     tri_dif_v1,
-#     os.sep.join((path, stacks[0], "Varied_resistivities")),
+#     path / stacks[0] / "Varied_resistivities",
 #     "all_dif_v1",
 # )

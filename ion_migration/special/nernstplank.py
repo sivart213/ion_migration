@@ -394,7 +394,7 @@ class PickleJar:
         if self.history and len(self.database) != 0:
             self.shift(name)
 
-        with open(os.sep.join((self.path, name)), "wb") as dill_file:
+        with open(self.path / name, "wb") as dill_file:
             dill.dump(data, dill_file)
 
     def __getitem__(self, name):
@@ -406,7 +406,7 @@ class PickleJar:
 
         if not self.database.isin([name]).any():
             name = difflib.get_close_matches(name, self.database)[0]
-        with open(os.sep.join((self.path, slugify(name))), "rb") as dill_file:
+        with open(self.path / slugify(name), "rb") as dill_file:
             data = dill.load(dill_file)
         return data
 
