@@ -1,0 +1,30 @@
+name: JC_PNPx
+channels:
+- conda-forge
+- defaults
+dependencies:
+- dill
+- fenics-dolfinx
+- h5py
+- ipython
+- matplotlib
+- mpich
+- numpy
+- openpyxl
+- pandas
+- pathlib
+- periodictable
+- pip
+- psutil
+- pyswarms
+- python
+- pyvista
+- scikit-learn
+- scipy
+- seaborn
+- spyder
+- statsmodels
+- sympy
+- pip:
+  - impedance
+  - zhinst
