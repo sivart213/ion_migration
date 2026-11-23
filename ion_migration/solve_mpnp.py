@@ -91,23 +91,38 @@ other = dict(
 # {"diffusivity": 0.75e-15, "valence": 0.5, "screen": 0.33, "rate": 1e-8, "m_eq": 2.24e20}
 runs = {
 
+        # "EVA_PNP_bkg_01": {"screen": None, "cbulk": 1e-20},
+        # "EVA_PNP_bkg_02": {"screen": None, "cbulk": 1e-10},
+        # "EVA_PNP_bkg_03": {"screen": None, "cbulk": 1e0},
+        # "EVA_PNP_bkg_04": {"screen": None, "cbulk": 1e10},
+        
+        "EVA_PNP_bkg_05": {"screen": None, "cbulk": 1e-20, "valence2": 1},
+        "EVA_PNP_bkg_06": {"screen": None, "cbulk": 1e-10, "valence2": 1},
+        "EVA_PNP_bkg_07": {"screen": None, "cbulk": 1e0, "valence2": 1},
+        "EVA_PNP_bkg_08": {"screen": None, "cbulk": 1e10, "valence2": 1},
+        
+        "EVA_PNP_bkg_09": {"screen": None, "cbulk": 1e-20, "valence2": -1},
+        "EVA_PNP_bkg_10": {"screen": None, "cbulk": 1e-10, "valence2": -1},
+        "EVA_PNP_bkg_11": {"screen": None, "cbulk": 1e0, "valence2": -1},
+        "EVA_PNP_bkg_12": {"screen": None, "cbulk": 1e10, "valence2": -1},
+        
         # "EVA_PNPCL_01": {"screen": None},
         # "EVA_PNPCL_02": {"screen": None, "valence2": 1},
         # "EVA_PNPCL_03": {"screen": None, "valence2": -1},
         # "EVA_PNPCL_04": {"screen": None, "valence2": 1, "valence3": -1},
         # "EVA_PNPCL_05": {"screen": None, "valence2": -1, "valence3": 1},
         
-        "EVA_PNPCL_06": {"screen": "calc"},
-        "EVA_PNPCL_07": {"screen": "calc", "valence2": 1},
-        "EVA_PNPCL_08": {"screen": "calc", "valence2": -1},
-        "EVA_PNPCL_09": {"screen": "calc", "valence2": 1, "valence3": -1},
-        "EVA_PNPCL_10": {"screen": "calc", "valence2": -1, "valence3": 1},
+        # "EVA_PNPCL_06": {"screen": "calc"},
+        # "EVA_PNPCL_07": {"screen": "calc", "valence2": 1},
+        # "EVA_PNPCL_08": {"screen": "calc", "valence2": -1},
+        # "EVA_PNPCL_09": {"screen": "calc", "valence2": 1, "valence3": -1},
+        # "EVA_PNPCL_10": {"screen": "calc", "valence2": -1, "valence3": 1},
         
-        "EVA_PNPCL_11": {"screen": "volt"},
-        "EVA_PNPCL_12": {"screen": "volt", "valence2": 1},
-        "EVA_PNPCL_13": {"screen": "volt", "valence2": -1},
-        "EVA_PNPCL_14": {"screen": "volt", "valence2": 1, "valence3": -1},
-        "EVA_PNPCL_15": {"screen": "volt", "valence2": -1, "valence3": 1},
+        # "EVA_PNPCL_11": {"screen": "volt"},
+        # "EVA_PNPCL_12": {"screen": "volt", "valence2": 1},
+        # "EVA_PNPCL_13": {"screen": "volt", "valence2": -1},
+        # "EVA_PNPCL_14": {"screen": "volt", "valence2": 1, "valence3": -1},
+        # "EVA_PNPCL_15": {"screen": "volt", "valence2": -1, "valence3": 1},
         
         # for 9
         # "EVA_22": {"screen": 0.33, "rate": 5e-9},
@@ -132,7 +147,7 @@ runs = {
         }
 
 
-rpath = p_find("Dropbox (ASU)","Work Docs","Data", "Raw", "Simulations", "PNP", "mPNPCL_80_r01", base="home") # "mPNP_80_r9"  "mPNP_80_r10"  "mPNP_80_r11"   "mPNP_80_r12"
+rpath = p_find("Dropbox (ASU)","Work Docs","Data", "Raw", "Simulations", "PNP", "mPNPCL_80_r02", base="home") # "mPNP_80_r9"  "mPNP_80_r10"  "mPNP_80_r11"   "mPNP_80_r12"
 pathlib_mk(rpath)
 gnote = "Cl at x=0" #"compare calc mPNP and PNP"
 
